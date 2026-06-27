@@ -27,6 +27,19 @@ function toOpenAIMessages(
         tool_call_id: msg.toolCallId ?? "",
         content: msg.content,
       });
+    } else if (msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
+      result.push({
+        role: "assistant",
+        content: msg.content || null,
+        tool_calls: msg.toolCalls.map((tc) => ({
+          id: tc.id,
+          type: "function" as const,
+          function: {
+            name: tc.name,
+            arguments: JSON.stringify(tc.arguments),
+          },
+        })),
+      });
     } else {
       result.push({ role: msg.role as "user" | "assistant" | "system", content: msg.content });
     }

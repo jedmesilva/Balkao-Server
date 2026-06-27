@@ -67,7 +67,7 @@ export async function generateReply(
 
     const results = await executeTools(response.toolCalls);
 
-    messages.push({ role: "assistant", content: response.content || "" });
+    messages.push({ role: "assistant", content: response.content || "", toolCalls: response.toolCalls });
 
     for (const result of results) {
       const content = result.error
