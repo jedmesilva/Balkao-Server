@@ -1,6 +1,8 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { initProviders } from "./lib/llm";
+import { registerAgent } from "./lib/agents";
+import { BalkaoAgent } from "./agents/balkao";
 
 const rawPort = process.env["PORT"];
 
@@ -18,6 +20,9 @@ if (Number.isNaN(port) || port <= 0) {
 
 initProviders();
 logger.info("LLM providers initialized");
+
+registerAgent(new BalkaoAgent());
+logger.info("Agents registered");
 
 app.listen(port, (err) => {
   if (err) {

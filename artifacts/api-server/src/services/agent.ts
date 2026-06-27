@@ -1,7 +1,7 @@
 import { logger } from "../lib/logger";
 import { sendMessage, markAsRead } from "./whatsapp-api";
 import { config } from "../lib/config";
-import { generateReply } from "./llm";
+import { routeMessage, type AgentContext } from "../lib/agents";
 
 export interface IncomingTextMessage {
   type: "text";
@@ -47,75 +47,46 @@ export type IncomingMessage =
   | IncomingInteractiveReply
   | IncomingLocationMessage;
 
-async function reply(to: string, body: string): Promise<void> {
-  await sendMessage(
-    { type: "text", to, body },
-    config.whatsapp.phoneNumberId,
-    config.whatsapp.token,
-    config.whatsapp.apiVersion,
-  );
-}
-
-async function handleTextMessage(message: IncomingTextMessage): Promise<void> {
-  const { from, messageId, body } = message;
-
-  logger.info({ from, messageId }, "Balkao: processing text message via LLM");
-
-  try {
-    const response = await generateReply(body);
-    await reply(from, response.content);
-  } catch (err) {
-    logger.error({ err, from, messageId }, "LLM generation failed");
-    await reply(
-      from,
-      "Desculpe, estou com uma instabilidade no momento. Tente novamente em instantes. 🙏",
-    );
-  }
-}
-
-async function handleInteractiveReply(message: IncomingInteractiveReply): Promise<void> {
-  const { from, messageId, replyId, replyTitle } = message;
-
-  logger.info({ from, messageId, replyId }, "Balkao: processing interactive reply via LLM");
-
-  try {
-    const response = await generateReply(`Usuário selecionou a opção: "${replyTitle}"`);
-    await reply(from, response.content);
-  } catch (err) {
-    logger.error({ err, from, messageId }, "LLM generation failed for interactive reply");
-    await reply(from, "Entendido! Como posso te ajudar?");
-  }
-}
-
-async function handleMediaMessage(message: IncomingMediaMessage): Promise<void> {
-  const { from, type } = message;
-
-  const mediaLabels: Record<string, string> = {
-    image: "imagem",
-    audio: "áudio",
-    video: "vídeo",
-    document: "documento",
-    sticker: "figurinha",
+function toAgentContext(message: IncomingMessage): AgentContext {
+  const base = {
+    from: message.from,
+    messageId: message.messageId,
+    timestamp: message.timestamp,
+    metadata: {},
   };
 
-  await reply(
-    from,
-    `Recebi seu ${mediaLabels[type] ?? type}! No momento só consigo processar mensagens de texto. Como posso te ajudar? 😊`,
-  );
-}
+  switch (message.type) {
+    case "text":
+      return { ...base, messageType: "text", text: message.body };
 
-async function handleLocationMessage(message: IncomingLocationMessage): Promise<void> {
-  const { from, latitude, longitude, name } = message;
+    case "interactive":
+      return {
+        ...base,
+        messageType: "interactive",
+        interactiveReplyId: message.replyId,
+        interactiveReplyTitle: message.replyTitle,
+      };
 
-  const locationName = name ? `*${name}*` : "essa localização";
+    case "location":
+      return {
+        ...base,
+        messageType: "location",
+        location: {
+          latitude: message.latitude,
+          longitude: message.longitude,
+          name: message.name,
+          address: message.address,
+        },
+      };
 
-  try {
-    const response = await generateReply(
-      `Usuário enviou a localização ${locationName} (lat: ${latitude}, lon: ${longitude}). Confirme o recebimento de forma amigável.`,
-    );
-    await reply(from, response.content);
-  } catch {
-    await reply(from, `📍 Recebi ${locationName}! Como posso te ajudar com isso?`);
+    default:
+      return {
+        ...base,
+        messageType: message.type,
+        mediaId: message.mediaId,
+        mediaMimeType: message.mimeType,
+        mediaCaption: message.caption,
+      };
   }
 }
 
@@ -131,24 +102,17 @@ export async function processMessage(message: IncomingMessage): Promise<void> {
     logger.warn({ err, messageId: message.messageId }, "Failed to mark message as read");
   }
 
-  switch (message.type) {
-    case "text":
-      await handleTextMessage(message);
-      break;
-    case "interactive":
-      await handleInteractiveReply(message);
-      break;
-    case "image":
-    case "audio":
-    case "video":
-    case "document":
-    case "sticker":
-      await handleMediaMessage(message);
-      break;
-    case "location":
-      await handleLocationMessage(message);
-      break;
-    default:
-      logger.warn({ message }, "Balkao: unhandled message type");
+  const context = toAgentContext(message);
+  const result = await routeMessage(context);
+
+  if (result.handled && result.reply) {
+    await sendMessage(
+      { type: "text", to: message.from, body: result.reply },
+      config.whatsapp.phoneNumberId,
+      config.whatsapp.token,
+      config.whatsapp.apiVersion,
+    );
+  } else if (!result.handled) {
+    logger.warn({ from: message.from, messageId: message.messageId }, "Message was not handled by any agent");
   }
 }
