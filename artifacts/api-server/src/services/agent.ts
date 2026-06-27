@@ -1,6 +1,7 @@
 import { logger } from "../lib/logger";
 import { sendMessage, markAsRead } from "./whatsapp-api";
 import { config } from "../lib/config";
+import { generateReply } from "./llm";
 
 export interface IncomingTextMessage {
   type: "text";
@@ -46,122 +47,48 @@ export type IncomingMessage =
   | IncomingInteractiveReply
   | IncomingLocationMessage;
 
-async function handleTextMessage(message: IncomingTextMessage): Promise<void> {
-  const { from, messageId, body } = message;
-  const lowerBody = body.trim().toLowerCase();
-
-  logger.info({ from, messageId, body }, "Balkao: processing text message");
-
-  if (lowerBody === "oi" || lowerBody === "olá" || lowerBody === "ola" || lowerBody === "hello" || lowerBody === "hi") {
-    await sendMessage(
-      {
-        type: "text",
-        to: from,
-        body: `Olá! 👋 Sou o *Balkao*, seu assistente virtual. Como posso te ajudar hoje?`,
-      },
-      config.whatsapp.phoneNumberId,
-      config.whatsapp.token,
-      config.whatsapp.apiVersion,
-    );
-    return;
-  }
-
-  if (lowerBody === "ajuda" || lowerBody === "help" || lowerBody === "menu") {
-    await sendMessage(
-      {
-        type: "interactive_buttons",
-        to: from,
-        header: "Balkao — Menu de Ajuda",
-        body: "Selecione uma das opções abaixo para continuar:",
-        buttons: [
-          { id: "info", title: "ℹ️ Informações" },
-          { id: "contact", title: "📞 Falar com humano" },
-          { id: "status", title: "📋 Status" },
-        ],
-        footer: "Balkao v1.0",
-      },
-      config.whatsapp.phoneNumberId,
-      config.whatsapp.token,
-      config.whatsapp.apiVersion,
-    );
-    return;
-  }
-
+async function reply(to: string, body: string): Promise<void> {
   await sendMessage(
-    {
-      type: "text",
-      to: from,
-      body: `Recebi sua mensagem: _"${body}"_\n\nEnvie *ajuda* para ver as opções disponíveis.`,
-    },
+    { type: "text", to, body },
     config.whatsapp.phoneNumberId,
     config.whatsapp.token,
     config.whatsapp.apiVersion,
   );
+}
+
+async function handleTextMessage(message: IncomingTextMessage): Promise<void> {
+  const { from, messageId, body } = message;
+
+  logger.info({ from, messageId }, "Balkao: processing text message via LLM");
+
+  try {
+    const response = await generateReply(body);
+    await reply(from, response.content);
+  } catch (err) {
+    logger.error({ err, from, messageId }, "LLM generation failed");
+    await reply(
+      from,
+      "Desculpe, estou com uma instabilidade no momento. Tente novamente em instantes. 🙏",
+    );
+  }
 }
 
 async function handleInteractiveReply(message: IncomingInteractiveReply): Promise<void> {
-  const { from, messageId, replyId } = message;
+  const { from, messageId, replyId, replyTitle } = message;
 
-  logger.info({ from, messageId, replyId }, "Balkao: processing interactive reply");
+  logger.info({ from, messageId, replyId }, "Balkao: processing interactive reply via LLM");
 
-  if (replyId === "info") {
-    await sendMessage(
-      {
-        type: "text",
-        to: from,
-        body: `*Balkao* é um agente de atendimento automatizado via WhatsApp.\n\nPowered by Meta WhatsApp Business API.`,
-      },
-      config.whatsapp.phoneNumberId,
-      config.whatsapp.token,
-      config.whatsapp.apiVersion,
-    );
-    return;
+  try {
+    const response = await generateReply(`Usuário selecionou a opção: "${replyTitle}"`);
+    await reply(from, response.content);
+  } catch (err) {
+    logger.error({ err, from, messageId }, "LLM generation failed for interactive reply");
+    await reply(from, "Entendido! Como posso te ajudar?");
   }
-
-  if (replyId === "contact") {
-    await sendMessage(
-      {
-        type: "text",
-        to: from,
-        body: `Entendido! Um de nossos atendentes entrará em contato em breve. ⏳`,
-      },
-      config.whatsapp.phoneNumberId,
-      config.whatsapp.token,
-      config.whatsapp.apiVersion,
-    );
-    return;
-  }
-
-  if (replyId === "status") {
-    await sendMessage(
-      {
-        type: "text",
-        to: from,
-        body: `✅ *Status do sistema*: Operando normalmente.\n🤖 Balkao está ativo e pronto para atender.`,
-      },
-      config.whatsapp.phoneNumberId,
-      config.whatsapp.token,
-      config.whatsapp.apiVersion,
-    );
-    return;
-  }
-
-  await sendMessage(
-    {
-      type: "text",
-      to: from,
-      body: `Opção não reconhecida. Envie *ajuda* para ver o menu.`,
-    },
-    config.whatsapp.phoneNumberId,
-    config.whatsapp.token,
-    config.whatsapp.apiVersion,
-  );
 }
 
 async function handleMediaMessage(message: IncomingMediaMessage): Promise<void> {
-  const { from, messageId, type } = message;
-
-  logger.info({ from, messageId, type }, "Balkao: received media message");
+  const { from, type } = message;
 
   const mediaLabels: Record<string, string> = {
     image: "imagem",
@@ -171,34 +98,25 @@ async function handleMediaMessage(message: IncomingMediaMessage): Promise<void> 
     sticker: "figurinha",
   };
 
-  await sendMessage(
-    {
-      type: "text",
-      to: from,
-      body: `Recebi seu ${mediaLabels[type] ?? type}! No momento só consigo processar mensagens de texto. Envie *ajuda* para ver o menu.`,
-    },
-    config.whatsapp.phoneNumberId,
-    config.whatsapp.token,
-    config.whatsapp.apiVersion,
+  await reply(
+    from,
+    `Recebi seu ${mediaLabels[type] ?? type}! No momento só consigo processar mensagens de texto. Como posso te ajudar? 😊`,
   );
 }
 
 async function handleLocationMessage(message: IncomingLocationMessage): Promise<void> {
-  const { from, messageId, latitude, longitude, name } = message;
-
-  logger.info({ from, messageId, latitude, longitude }, "Balkao: received location");
+  const { from, latitude, longitude, name } = message;
 
   const locationName = name ? `*${name}*` : "essa localização";
-  await sendMessage(
-    {
-      type: "text",
-      to: from,
-      body: `📍 Recebi ${locationName}!\n\nCoordenadas: ${latitude}, ${longitude}`,
-    },
-    config.whatsapp.phoneNumberId,
-    config.whatsapp.token,
-    config.whatsapp.apiVersion,
-  );
+
+  try {
+    const response = await generateReply(
+      `Usuário enviou a localização ${locationName} (lat: ${latitude}, lon: ${longitude}). Confirme o recebimento de forma amigável.`,
+    );
+    await reply(from, response.content);
+  } catch {
+    await reply(from, `📍 Recebi ${locationName}! Como posso te ajudar com isso?`);
+  }
 }
 
 export async function processMessage(message: IncomingMessage): Promise<void> {
