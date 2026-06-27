@@ -1,44 +1,58 @@
-# [Project name]
+# Balkao — Servidor de Agente WhatsApp
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Servidor backend para o agente de WhatsApp Balkao, integrado com a API oficial do WhatsApp Business (Meta Cloud API).
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm --filter @workspace/api-server run dev` — inicia o servidor API (porta 8080)
+- `pnpm run typecheck` — typecheck completo em todos os pacotes
+- `pnpm run build` — typecheck + build de todos os pacotes
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
+- Logging: pino + pino-http
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/api-server/src/routes/whatsapp.ts` — webhook GET (verificação) e POST (recebimento de mensagens)
+- `artifacts/api-server/src/services/agent.ts` — lógica do agente Balkao (respostas automáticas)
+- `artifacts/api-server/src/services/whatsapp-api.ts` — cliente para envio via Meta Cloud API
+- `artifacts/api-server/src/middlewares/verify-whatsapp-signature.ts` — verificação HMAC de assinatura
+- `artifacts/api-server/src/lib/config.ts` — leitura de variáveis de ambiente
+
+## Configuração do Webhook Meta
+
+URL do webhook a configurar no painel Meta for Developers:
+```
+https://<seu-domínio>/api/whatsapp/webhook
+```
+- **Verify Token**: o valor que você definiu em `WHATSAPP_VERIFY_TOKEN`
+- **Campos a assinar**: `messages`
+
+## Secrets necessários
+
+| Variável | Onde encontrar |
+|---|---|
+| `WHATSAPP_TOKEN` | Meta for Developers > App > WhatsApp > Token de acesso |
+| `WHATSAPP_PHONE_NUMBER_ID` | Meta for Developers > App > WhatsApp > Configuração > ID do número |
+| `WHATSAPP_APP_SECRET` | Meta for Developers > App > Configurações Básicas > Segredo do app |
+| `WHATSAPP_VERIFY_TOKEN` | String arbitrária escolhida por você |
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
-
-## Product
-
-_Describe the high-level user-facing capabilities of this app once they exist._
-
-## User preferences
-
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Raw body capturado via `verify` do `express.json()` para validação HMAC da assinatura Meta (X-Hub-Signature-256)
+- Respostas ao webhook são enviadas imediatamente (200 OK) e o processamento do agente ocorre de forma assíncrona — evita timeout de 20s da Meta
+- Lógica do agente isolada em `services/agent.ts` para facilitar extensão (AI, banco de dados, etc.)
+- Verificação de assinatura usa `timingSafeEqual` para evitar timing attacks
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Sempre responder 200 ao webhook Meta ANTES de processar — a Meta cancela requisições após 20s
+- O raw body precisa estar disponível antes do `express.json()` parsear — a ordem dos middlewares em `app.ts` é crítica
+- `WHATSAPP_VERIFY_TOKEN` deve ser exatamente igual ao configurado no painel Meta
 
 ## Pointers
 
