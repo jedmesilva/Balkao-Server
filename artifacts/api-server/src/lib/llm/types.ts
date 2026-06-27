@@ -1,18 +1,30 @@
+import type { ToolParametersSchema, ToolCallRequest } from "../tools/types";
+
 export interface LLMMessage {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  toolCallId?: string;
+  toolName?: string;
+}
+
+export interface LLMTool {
+  name: string;
+  description: string;
+  parameters: ToolParametersSchema;
 }
 
 export interface LLMOptions {
   model?: string;
   maxTokens?: number;
   systemPrompt?: string;
+  tools?: LLMTool[];
 }
 
 export interface LLMResponse {
   content: string;
   provider: string;
   model: string;
+  toolCalls?: ToolCallRequest[];
   usage?: {
     promptTokens: number;
     completionTokens: number;

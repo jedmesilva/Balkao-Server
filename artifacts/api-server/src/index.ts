@@ -2,7 +2,10 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { initProviders } from "./lib/llm";
 import { registerAgent } from "./lib/agents";
+import { registerTool } from "./lib/tools";
 import { BalkaoAgent } from "./agents/balkao";
+import { getCurrentDatetimeTool } from "./tools/get-current-datetime";
+import { calculateTool } from "./tools/calculate";
 
 const rawPort = process.env["PORT"];
 
@@ -20,6 +23,10 @@ if (Number.isNaN(port) || port <= 0) {
 
 initProviders();
 logger.info("LLM providers initialized");
+
+registerTool(getCurrentDatetimeTool);
+registerTool(calculateTool);
+logger.info("Tools registered");
 
 registerAgent(new BalkaoAgent());
 logger.info("Agents registered");
