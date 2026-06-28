@@ -4,6 +4,7 @@ import { initProviders } from "./lib/llm";
 import { registerAgent } from "./lib/agents";
 import { registerTool } from "./lib/tools";
 import { BalkaoAgent } from "./agents/balkao";
+import { IdentityAgent } from "./agents/identity";
 import { getCurrentDatetimeTool } from "./tools/get-current-datetime";
 import { calculateTool } from "./tools/calculate";
 
@@ -28,6 +29,7 @@ registerTool(getCurrentDatetimeTool);
 registerTool(calculateTool);
 logger.info("Tools registered");
 
+registerAgent(new IdentityAgent());
 registerAgent(new BalkaoAgent());
 logger.info("Agents registered");
 
