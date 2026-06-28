@@ -10,36 +10,37 @@ import {
   normalizeDocument,
 } from "../services/pluggy";
 import { logger } from "../lib/logger";
-import { z } from "zod/v4";
 
 const router: IRouter = Router();
 
-const StartVerificationBody = z.object({
-  phoneNumber: z.string().min(1),
-  declaredDocument: z.string().min(1),
-  documentType: z.enum(["CPF", "CNPJ"]),
-  webhookUrl: z.string().url().optional(),
-});
+function isValidDocumentType(v: unknown): v is "CPF" | "CNPJ" {
+  return v === "CPF" || v === "CNPJ";
+}
 
-const VerifyIdentityBody = z.object({
-  phoneNumber: z.string().min(1),
-  itemId: z.string().uuid(),
-});
-
-const WebhookBody = z.object({
-  event: z.string(),
-  id: z.string().optional(),
-  data: z.record(z.unknown()).optional(),
-}).passthrough();
+function isUuid(v: unknown): boolean {
+  return typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
 
 router.post("/pluggy/connect-token", async (req: Request, res: Response): Promise<void> => {
-  const parsed = StartVerificationBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid request body", details: parsed.error.issues });
+  const { phoneNumber, declaredDocument, documentType, webhookUrl } = req.body as Record<string, unknown>;
+
+  if (!phoneNumber || typeof phoneNumber !== "string") {
+    res.status(400).json({ error: "phoneNumber is required" });
+    return;
+  }
+  if (!declaredDocument || typeof declaredDocument !== "string") {
+    res.status(400).json({ error: "declaredDocument is required" });
+    return;
+  }
+  if (!isValidDocumentType(documentType)) {
+    res.status(400).json({ error: "documentType must be 'CPF' or 'CNPJ'" });
+    return;
+  }
+  if (webhookUrl !== undefined && typeof webhookUrl !== "string") {
+    res.status(400).json({ error: "webhookUrl must be a string URL" });
     return;
   }
 
-  const { phoneNumber, declaredDocument, documentType, webhookUrl } = parsed.data;
   const normalizedDoc = normalizeDocument(declaredDocument);
   const clientUserId = `${phoneNumber}|${documentType}|${normalizedDoc}`;
 
@@ -55,7 +56,7 @@ router.post("/pluggy/connect-token", async (req: Request, res: Response): Promis
 
     const connectToken = await createConnectToken({
       clientUserId,
-      webhookUrl,
+      webhookUrl: webhookUrl as string | undefined,
       itemId,
     });
 
@@ -89,13 +90,18 @@ router.post("/pluggy/connect-token", async (req: Request, res: Response): Promis
 });
 
 router.post("/pluggy/verify", async (req: Request, res: Response): Promise<void> => {
-  const parsed = VerifyIdentityBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid request body", details: parsed.error.issues });
+  const { phoneNumber, itemId } = req.body as Record<string, unknown>;
+
+  if (!phoneNumber || typeof phoneNumber !== "string") {
+    res.status(400).json({ error: "phoneNumber is required" });
+    return;
+  }
+  if (!isUuid(itemId)) {
+    res.status(400).json({ error: "itemId must be a valid UUID" });
     return;
   }
 
-  const { phoneNumber, itemId } = parsed.data;
+  const itemIdStr = itemId as string;
 
   try {
     const existing = await db
@@ -110,7 +116,7 @@ router.post("/pluggy/verify", async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    const item = await getItem(itemId);
+    const item = await getItem(itemIdStr);
 
     if (!item.connector.isOpenFinance) {
       await db
@@ -129,7 +135,7 @@ router.post("/pluggy/verify", async (req: Request, res: Response): Promise<void>
         .update(identityVerificationsTable)
         .set({
           status: "pending_multi_approval",
-          pluggyItemId: itemId,
+          pluggyItemId: itemIdStr,
           updatedAt: new Date(),
         })
         .where(eq(identityVerificationsTable.phoneNumber, phoneNumber));
@@ -149,17 +155,15 @@ router.post("/pluggy/verify", async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    const identity = await getIdentity(itemId);
-
-    const returnedDocument = identity.document;
+    const identity = await getIdentity(itemIdStr);
     const now = new Date();
 
-    if (!documentsMatch(record.declaredDocument, returnedDocument)) {
+    if (!documentsMatch(record.declaredDocument, identity.document)) {
       await db
         .update(identityVerificationsTable)
         .set({
           status: "identity_mismatch",
-          pluggyItemId: itemId,
+          pluggyItemId: itemIdStr,
           updatedAt: now,
         })
         .where(eq(identityVerificationsTable.phoneNumber, phoneNumber));
@@ -180,7 +184,7 @@ router.post("/pluggy/verify", async (req: Request, res: Response): Promise<void>
       .update(identityVerificationsTable)
       .set({
         status: "identity_verified",
-        pluggyItemId: itemId,
+        pluggyItemId: itemIdStr,
         verifiedAt: now,
         lastBankReauthAt: now,
         updatedAt: now,
@@ -188,7 +192,7 @@ router.post("/pluggy/verify", async (req: Request, res: Response): Promise<void>
       .where(eq(identityVerificationsTable.phoneNumber, phoneNumber));
 
     req.log.info(
-      { phoneNumber, documentType: record.documentType, itemId },
+      { phoneNumber, documentType: record.documentType, itemId: itemIdStr },
       "Identity verified successfully via Pluggy",
     );
 
@@ -199,7 +203,7 @@ router.post("/pluggy/verify", async (req: Request, res: Response): Promise<void>
       documentType: record.documentType,
     });
   } catch (err) {
-    req.log.error({ err, phoneNumber, itemId }, "Pluggy identity verification failed");
+    req.log.error({ err, phoneNumber, itemId: itemIdStr }, "Pluggy identity verification failed");
     res.status(500).json({ error: "Identity verification failed" });
   }
 });
@@ -276,26 +280,27 @@ router.delete("/pluggy/revoke/:phoneNumber", async (req: Request, res: Response)
 });
 
 router.post("/pluggy/webhook", async (req: Request, res: Response): Promise<void> => {
-  const parsed = WebhookBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid webhook payload" });
+  const body = req.body as Record<string, unknown>;
+  const event = body.event;
+
+  if (typeof event !== "string") {
+    res.status(400).json({ error: "Invalid webhook payload: event is required" });
     return;
   }
 
-  const payload = parsed.data;
-  req.log.info({ event: payload.event }, "Received Pluggy webhook event");
-
+  req.log.info({ event }, "Received Pluggy webhook event");
   res.status(200).json({ received: true });
 
   try {
-    const itemId = (payload.data as { itemId?: string })?.itemId ?? payload.id;
+    const data = body.data as Record<string, unknown> | undefined;
+    const itemId = (data?.itemId as string | undefined) ?? (body.id as string | undefined);
     if (!itemId) return;
 
-    if (payload.event === "item/error" || payload.event === "item/login_error") {
-      logger.warn({ itemId, event: payload.event }, "Pluggy item connection error via webhook");
+    if (event === "item/error" || event === "item/login_error") {
+      logger.warn({ itemId, event }, "Pluggy item connection error via webhook");
     }
 
-    if (payload.event === "item/updated" || payload.event === "item/created") {
+    if (event === "item/updated" || event === "item/created") {
       const existing = await db
         .select()
         .from(identityVerificationsTable)
@@ -309,17 +314,12 @@ router.post("/pluggy/webhook", async (req: Request, res: Response): Promise<void
 
       const record = existing[0];
       const identity = await getIdentity(itemId);
-
       const now = new Date();
+
       if (documentsMatch(record.declaredDocument, identity.document)) {
         await db
           .update(identityVerificationsTable)
-          .set({
-            status: "identity_verified",
-            verifiedAt: now,
-            lastBankReauthAt: now,
-            updatedAt: now,
-          })
+          .set({ status: "identity_verified", verifiedAt: now, lastBankReauthAt: now, updatedAt: now })
           .where(eq(identityVerificationsTable.pluggyItemId, itemId));
         logger.info({ itemId, phoneNumber: record.phoneNumber }, "Identity auto-verified via webhook");
       } else {
