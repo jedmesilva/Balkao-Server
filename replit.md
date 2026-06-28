@@ -40,6 +40,25 @@ https://<seu-domínio>/api/whatsapp/webhook
 | `WHATSAPP_PHONE_NUMBER_ID` | Meta for Developers > App > WhatsApp > Configuração > ID do número |
 | `WHATSAPP_APP_SECRET` | Meta for Developers > App > Configurações Básicas > Segredo do app |
 | `WHATSAPP_VERIFY_TOKEN` | String arbitrária escolhida por você |
+| `DATABASE_URL` | Supabase > Project Settings > Database > Connection string (Transaction Pooler, porta 6543) |
+| `SUPABASE_URL` | Supabase > Project Settings > API > Project URL |
+| `SUPABASE_ANON_KEY` | Supabase > Project Settings > API > anon / public |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase > Project Settings > API > service_role (nunca expor no frontend) |
+
+## Banco de dados (Supabase)
+
+O projeto usa **Drizzle ORM** com PostgreSQL hospedado no Supabase. A conexão é gerenciada em `lib/db/`:
+
+- **Connection string**: Use o **Transaction Pooler** do Supabase (porta 6543) no `DATABASE_URL` — é compatível com Drizzle + `pg.Pool` e suporta múltiplas conexões simultâneas. A URL tem o formato: `postgresql://postgres.[ref]:[senha]@aws-0-[region].pooler.supabase.com:6543/postgres`
+- **SSL**: Habilitado com `rejectUnauthorized: true` para conexões não-localhost (Supabase usa certificados Let's Encrypt válidos).
+- **Pool**: configurado com `max: 10`, `idleTimeoutMillis: 30s`, `connectionTimeoutMillis: 5s`.
+- **Schema push**: `pnpm --filter @workspace/db run push` — aplica o schema no banco sem migrations (desenvolvimento).
+
+### Schema atual
+
+| Tabela | Descrição |
+|---|---|
+| `identity_verifications` | Rastreia o fluxo de verificação de identidade de cada usuário WhatsApp via Pluggy Open Finance |
 
 ## Architecture decisions
 
