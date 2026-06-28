@@ -55,6 +55,7 @@ export interface ConnectTokenOptions {
   clientUserId: string;
   webhookUrl?: string;
   itemId?: string;
+  redirectUrl?: string;
 }
 
 export async function createConnectToken(opts: ConnectTokenOptions): Promise<string> {
@@ -66,6 +67,7 @@ export async function createConnectToken(opts: ConnectTokenOptions): Promise<str
   };
   if (opts.webhookUrl) body.webhookUrl = opts.webhookUrl;
   if (opts.itemId) body.itemId = opts.itemId;
+  if (opts.redirectUrl) body.redirectUrl = opts.redirectUrl;
 
   const res = await fetch(`${PLUGGY_BASE}/connect_token`, {
     method: "POST",

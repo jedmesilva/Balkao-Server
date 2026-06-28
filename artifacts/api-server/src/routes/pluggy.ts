@@ -23,10 +23,16 @@ function isUuid(v: unknown): boolean {
 
 router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> => {
   const phoneNumber = req.query["phone"] as string | undefined;
+  const isReturn = req.query["return"] === "1";
+
   if (!phoneNumber) {
     res.status(400).send("<h2>Parâmetro 'phone' ausente.</h2>");
     return;
   }
+
+  const baseUrl = process.env.REPLIT_DEV_DOMAIN
+    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+    : "";
 
   const existing = await db
     .select()
@@ -40,26 +46,7 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
     return;
   }
 
-  let connectToken: string;
-  try {
-    connectToken = await createConnectToken({
-      clientUserId: record.pluggyClientUserId ?? phoneNumber,
-      itemId: record.pluggyItemId ?? undefined,
-    });
-  } catch (err) {
-    logger.error({ err, phoneNumber }, "Widget: failed to generate connect token");
-    res.status(500).send("<h2>Erro ao gerar token de conexão. Tente novamente.</h2>");
-    return;
-  }
-
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(`<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Balkao — Verificação de Identidade</title>
-  <style>
+  const commonStyles = `
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -83,6 +70,7 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
     h1 { font-size: 1.3rem; color: #111; margin-bottom: 8px; }
     p { color: #555; font-size: 0.95rem; line-height: 1.5; margin-bottom: 20px; }
     .btn {
+      display: block;
       background: #1a73e8;
       color: #fff;
       border: none;
@@ -92,102 +80,116 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
       font-weight: 600;
       cursor: pointer;
       width: 100%;
+      text-decoration: none;
       transition: background 0.2s;
     }
     .btn:hover { background: #1557b0; }
-    .btn:disabled { background: #aaa; cursor: not-allowed; }
     .status {
       margin-top: 20px;
       padding: 14px;
       border-radius: 10px;
       font-size: 0.95rem;
-      display: none;
     }
-    .status.success { background: #e6f4ea; color: #1e7e34; display: block; }
-    .status.error   { background: #fce8e6; color: #c5221f; display: block; }
-    .status.info    { background: #e8f0fe; color: #1a56db; display: block; }
+    .status.success { background: #e6f4ea; color: #1e7e34; }
+    .status.error   { background: #fce8e6; color: #c5221f; }
+    .status.info    { background: #e8f0fe; color: #1a56db; }
     .lock { font-size: 0.8rem; color: #aaa; margin-top: 16px; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="logo">🏦</div>
-    <h1>Verificação de Identidade</h1>
-    <p>Conecte sua conta bancária via Open Finance (regulado pelo Banco Central) para confirmar sua identidade no Balkao.</p>
-    <button class="btn" id="openBtn" onclick="openWidget()">Conectar conta bancária</button>
-    <div class="status" id="statusBox"></div>
-    <p class="lock">🔒 Sua senha bancária nunca é compartilhada com o Balkao</p>
-  </div>
+    .spinner { display: inline-block; width: 18px; height: 18px; border: 3px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  `;
 
-  <script src="https://cdn.pluggy.ai/pluggy-connect/v2.6.0/pluggy-connect.js"></script>
-  <script>
-    const CONNECT_TOKEN = ${JSON.stringify(connectToken)};
-    const PHONE_NUMBER  = ${JSON.stringify(phoneNumber)};
-    const API_BASE      = ${JSON.stringify(
-      (process.env.REPLIT_DEV_DOMAIN
-        ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-        : "") + "/api"
-    )};
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
 
-    function showStatus(type, msg) {
-      const el = document.getElementById('statusBox');
-      el.className = 'status ' + type;
-      el.textContent = msg;
+  if (isReturn) {
+    const statusNow = record.status;
+    if (statusNow === "identity_verified") {
+      res.send(`<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Balkao — Verificado</title><style>${commonStyles}</style></head>
+<body><div class="card">
+  <div class="logo">✅</div>
+  <h1>Identidade verificada!</h1>
+  <p>Sua identidade foi confirmada com sucesso. Pode fechar esta aba e voltar ao WhatsApp para continuar.</p>
+  <p class="lock">🔒 Seus dados bancários nunca são compartilhados com o Balkao</p>
+</div></body></html>`);
+      return;
     }
 
-    function openWidget() {
-      document.getElementById('openBtn').disabled = true;
-      showStatus('info', 'Abrindo conexão bancária…');
+    const apiBase = `${baseUrl}/api`;
+    res.send(`<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Balkao — Verificando…</title><style>${commonStyles}</style></head>
+<body><div class="card">
+  <div class="logo">🏦</div>
+  <h1>Verificando sua identidade…</h1>
+  <div class="status info" id="statusBox">⏳ Aguardando confirmação do banco. Isso pode levar alguns segundos…</div>
+  <p class="lock" style="margin-top:24px">🔒 Seus dados bancários nunca são compartilhados com o Balkao</p>
+</div>
+<script>
+  const PHONE = ${JSON.stringify(phoneNumber)};
+  const API = ${JSON.stringify(apiBase)};
+  let attempts = 0;
+  const MAX = 30;
 
-      const pluggyConnect = new PluggyConnect({
-        connectToken: CONNECT_TOKEN,
-        includeSandbox: true,
-        onSuccess: async function(itemData) {
-          const itemId = itemData?.item?.id;
-          if (!itemId) {
-            showStatus('error', 'Erro: ID do item não retornado pelo widget.');
-            document.getElementById('openBtn').disabled = false;
-            return;
-          }
-          showStatus('info', 'Verificando identidade…');
-          try {
-            const resp = await fetch(API_BASE + '/pluggy/verify', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ phoneNumber: PHONE_NUMBER, itemId }),
-            });
-            const data = await resp.json();
-            if (resp.ok) {
-              showStatus('success', '✅ Identidade verificada com sucesso! Pode voltar ao WhatsApp.');
-            } else if (resp.status === 202) {
-              showStatus('info', '⏳ Aguardando aprovação dos demais responsáveis. Você será notificado pelo WhatsApp.');
-            } else {
-              showStatus('error', '❌ ' + (data.error || 'Documento não confere. Conecte a conta vinculada ao seu CPF/CNPJ.'));
-              document.getElementById('openBtn').disabled = false;
-            }
-          } catch (err) {
-            showStatus('error', 'Erro de conexão. Tente novamente.');
-            document.getElementById('openBtn').disabled = false;
-          }
-        },
-        onError: function(err) {
-          showStatus('error', 'Erro na conexão bancária: ' + (err?.message || 'tente novamente.'));
-          document.getElementById('openBtn').disabled = false;
-        },
-        onClose: function() {
-          const box = document.getElementById('statusBox');
-          if (!box.classList.contains('success') && !box.classList.contains('info')) {
-            showStatus('info', 'Conexão cancelada. Clique em "Conectar conta bancária" para tentar novamente.');
-            document.getElementById('openBtn').disabled = false;
-          }
-        },
-      });
-
-      pluggyConnect.init();
+  async function poll() {
+    attempts++;
+    try {
+      const r = await fetch(API + '/pluggy/status/' + encodeURIComponent(PHONE));
+      if (r.ok) {
+        const d = await r.json();
+        if (d.status === 'identity_verified') {
+          document.getElementById('statusBox').className = 'status success';
+          document.getElementById('statusBox').textContent = '✅ Identidade verificada! Pode fechar esta aba e voltar ao WhatsApp.';
+          return;
+        }
+        if (d.status === 'identity_mismatch') {
+          document.getElementById('statusBox').className = 'status error';
+          document.getElementById('statusBox').textContent = '❌ Documento não confere com o cadastrado no banco. Entre em contato pelo WhatsApp.';
+          return;
+        }
+      }
+    } catch(e) {}
+    if (attempts < MAX) {
+      setTimeout(poll, 3000);
+    } else {
+      document.getElementById('statusBox').className = 'status info';
+      document.getElementById('statusBox').textContent = '⏳ A verificação ainda está em andamento. Aguarde a confirmação pelo WhatsApp.';
     }
-  </script>
-</body>
-</html>`);
+  }
+  setTimeout(poll, 2000);
+</script>
+</body></html>`);
+    return;
+  }
+
+  let connectToken: string;
+  try {
+    const redirectUrl = `${baseUrl}/api/pluggy/widget?phone=${encodeURIComponent(phoneNumber)}&return=1`;
+    const webhookUrl = `${baseUrl}/api/pluggy/webhook`;
+    connectToken = await createConnectToken({
+      clientUserId: record.pluggyClientUserId ?? phoneNumber,
+      itemId: record.pluggyItemId ?? undefined,
+      webhookUrl,
+      redirectUrl,
+    });
+  } catch (err) {
+    logger.error({ err, phoneNumber }, "Widget: failed to generate connect token");
+    res.status(500).send("<h2>Erro ao gerar token de conexão. Tente novamente.</h2>");
+    return;
+  }
+
+  const pluggyUrl = `https://connect.pluggy.ai?connectToken=${encodeURIComponent(connectToken)}&language=pt&sandbox=true`;
+
+  res.send(`<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Balkao — Verificação de Identidade</title><style>${commonStyles}</style></head>
+<body><div class="card">
+  <div class="logo">🏦</div>
+  <h1>Verificação de Identidade</h1>
+  <p>Conecte sua conta bancária via Open Finance (regulado pelo Banco Central) para confirmar sua identidade no Balkao.</p>
+  <a class="btn" href="${pluggyUrl}">Conectar conta bancária</a>
+  <p class="lock" style="margin-top:16px">🔒 Sua senha bancária nunca é compartilhada com o Balkao</p>
+</div></body></html>`);
 });
 
 router.post("/pluggy/connect-token", async (req: Request, res: Response): Promise<void> => {
@@ -457,31 +459,66 @@ router.post("/pluggy/webhook", async (req: Request, res: Response): Promise<void
     return;
   }
 
-  req.log.info({ event }, "Received Pluggy webhook event");
+  req.log.info({ event, body }, "Received Pluggy webhook event");
   res.status(200).json({ received: true });
 
   try {
     const data = body.data as Record<string, unknown> | undefined;
     const itemId = (data?.itemId as string | undefined) ?? (body.id as string | undefined);
+    const clientUserId = (data?.clientUserId as string | undefined);
+
     if (!itemId) return;
 
     if (event === "item/error" || event === "item/login_error") {
       logger.warn({ itemId, event }, "Pluggy item connection error via webhook");
+      return;
     }
 
     if (event === "item/updated" || event === "item/created") {
-      const existing = await db
+      let existing = await db
         .select()
         .from(identityVerificationsTable)
         .where(eq(identityVerificationsTable.pluggyItemId, itemId))
         .limit(1);
 
-      if (!existing[0]) return;
+      if (!existing[0] && clientUserId) {
+        existing = await db
+          .select()
+          .from(identityVerificationsTable)
+          .where(eq(identityVerificationsTable.phoneNumber, clientUserId))
+          .limit(1);
 
-      const item = await getItem(itemId);
-      if (item.executionStatus !== "SUCCESS") return;
+        if (!existing[0]) {
+          const byPluggyClientUserId = await db
+            .select()
+            .from(identityVerificationsTable)
+            .where(eq(identityVerificationsTable.pluggyClientUserId, clientUserId))
+            .limit(1);
+          if (byPluggyClientUserId[0]) existing = byPluggyClientUserId;
+        }
+      }
+
+      if (!existing[0]) {
+        logger.warn({ itemId, clientUserId }, "Webhook: no matching verification record found");
+        return;
+      }
 
       const record = existing[0];
+
+      if (!record.pluggyItemId) {
+        await db
+          .update(identityVerificationsTable)
+          .set({ pluggyItemId: itemId, updatedAt: new Date() })
+          .where(eq(identityVerificationsTable.phoneNumber, record.phoneNumber));
+        logger.info({ itemId, phoneNumber: record.phoneNumber }, "Saved pluggyItemId from webhook");
+      }
+
+      const item = await getItem(itemId);
+      if (item.executionStatus !== "SUCCESS") {
+        logger.info({ itemId, executionStatus: item.executionStatus }, "Item not yet successful, skipping identity check");
+        return;
+      }
+
       const identity = await getIdentity(itemId);
       const now = new Date();
 
@@ -489,14 +526,14 @@ router.post("/pluggy/webhook", async (req: Request, res: Response): Promise<void
         await db
           .update(identityVerificationsTable)
           .set({ status: "identity_verified", verifiedAt: now, lastBankReauthAt: now, updatedAt: now })
-          .where(eq(identityVerificationsTable.pluggyItemId, itemId));
+          .where(eq(identityVerificationsTable.phoneNumber, record.phoneNumber));
         logger.info({ itemId, phoneNumber: record.phoneNumber }, "Identity auto-verified via webhook");
       } else {
         await db
           .update(identityVerificationsTable)
           .set({ status: "identity_mismatch", updatedAt: now })
-          .where(eq(identityVerificationsTable.pluggyItemId, itemId));
-        logger.warn({ itemId, phoneNumber: record.phoneNumber }, "Identity mismatch detected via webhook");
+          .where(eq(identityVerificationsTable.phoneNumber, record.phoneNumber));
+        logger.warn({ itemId, phoneNumber: record.phoneNumber, declared: record.declaredDocument, fromBank: identity.document }, "Identity mismatch detected via webhook");
       }
     }
   } catch (err) {
