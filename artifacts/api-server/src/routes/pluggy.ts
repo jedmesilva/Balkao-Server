@@ -194,7 +194,7 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
   <div class="status" id="statusBox" style="display:none"></div>
   <p class="lock">Sua senha bancária nunca é compartilhada com o Balkao</p>
 </div>
-<script src="https://cdn.pluggy.ai/pluggy-connect/v2/pluggy-connect.js"></script>
+<script src="https://cdn.pluggy.ai/pluggy-connect/v2.1.0/pluggy-connect.js"></script>
 <script>
   var CONNECT_TOKEN = ${JSON.stringify(connectToken)};
   var REDIRECT_URL  = ${JSON.stringify(redirectUrl)};
