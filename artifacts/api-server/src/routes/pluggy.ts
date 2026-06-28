@@ -188,54 +188,56 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
 <style>${commonStyles}</style>
 </head>
 <body><div class="card">
-  <div class="logo">🏦</div>
   <h1>Verificação de Identidade</h1>
-  <div class="status info" id="statusBox">⏳ Carregando seleção de bancos…</div>
-  <p class="lock" style="margin-top:16px">🔒 Sua senha bancária nunca é compartilhada com o Balkao</p>
-  <button class="btn" id="retry-btn" style="display:none;margin-top:16px">Tentar novamente</button>
+  <p>Para confirmar quem você é, conecte sua conta bancária via Open Finance — o sistema regulado pelo Banco Central.</p>
+  <button class="btn" id="connect-btn">Selecionar meu banco</button>
+  <div class="status" id="statusBox" style="display:none"></div>
+  <p class="lock">Sua senha bancária nunca é compartilhada com o Balkao</p>
 </div>
 <script src="https://cdn.pluggy.ai/pluggy-connect/v2/pluggy-connect.js"></script>
 <script>
-  const CONNECT_TOKEN = ${JSON.stringify(connectToken)};
-  const REDIRECT_URL  = ${JSON.stringify(redirectUrl)};
+  var CONNECT_TOKEN = ${JSON.stringify(connectToken)};
+  var REDIRECT_URL  = ${JSON.stringify(redirectUrl)};
 
-  const statusBox  = document.getElementById('statusBox');
-  const retryBtn   = document.getElementById('retry-btn');
+  var btn       = document.getElementById('connect-btn');
+  var statusBox = document.getElementById('statusBox');
 
   function showStatus(cls, msg) {
     statusBox.className = 'status ' + cls;
     statusBox.textContent = msg;
+    statusBox.style.display = '';
   }
 
-  function openConnect() {
-    retryBtn.style.display = 'none';
-    showStatus('info', '⏳ Carregando seleção de bancos…');
+  btn.addEventListener('click', function() {
+    btn.disabled = true;
+    btn.textContent = 'Aguarde…';
 
-    const pluggyConnect = new PluggyConnect({
-      connectToken: CONNECT_TOKEN,
-      sandbox: true,
-      language: 'pt',
-      onSuccess: function() {
-        showStatus('info', '⏳ Conexão realizada! Verificando sua identidade…');
-        setTimeout(function() { window.location.href = REDIRECT_URL; }, 1500);
-      },
-      onError: function() {
-        showStatus('error', '❌ Erro na conexão bancária. Tente novamente.');
-        retryBtn.style.display = '';
-      },
-      onClose: function() {
-        showStatus('info', 'Clique em "Tentar novamente" para selecionar outro banco.');
-        retryBtn.style.display = '';
-      },
-    });
-
-    pluggyConnect.init();
-  }
-
-  retryBtn.addEventListener('click', openConnect);
-
-  // Abre automaticamente ao carregar a página
-  window.addEventListener('load', openConnect);
+    try {
+      var pluggyConnect = new PluggyConnect({
+        connectToken: CONNECT_TOKEN,
+        onSuccess: function() {
+          btn.style.display = 'none';
+          showStatus('info', 'Conexão realizada! Verificando sua identidade…');
+          setTimeout(function() { window.location.href = REDIRECT_URL; }, 1500);
+        },
+        onError: function(err) {
+          btn.disabled = false;
+          btn.textContent = 'Tentar novamente';
+          showStatus('error', 'Erro na conexão bancária. Tente novamente.');
+        },
+        onClose: function() {
+          btn.disabled = false;
+          btn.textContent = 'Selecionar meu banco';
+          statusBox.style.display = 'none';
+        },
+      });
+      pluggyConnect.init();
+    } catch(e) {
+      btn.disabled = false;
+      btn.textContent = 'Tentar novamente';
+      showStatus('error', 'Erro ao carregar o widget. Verifique sua conexão e tente novamente.');
+    }
+  });
 </script>
 </body></html>`);
 });
