@@ -182,7 +182,7 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
     return;
   }
 
-  const pluggyUrl = `https://connect.pluggy.ai?connectToken=${encodeURIComponent(connectToken)}&language=pt&sandbox=true`;
+  const pluggyUrl = `https://connect.pluggy.ai/?connectToken=${encodeURIComponent(connectToken)}&language=pt&sandbox=true`;
 
   res.send(`<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -197,7 +197,7 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
 });
 
 router.post("/pluggy/connect-token", async (req: Request, res: Response): Promise<void> => {
-  const { phoneNumber, declaredDocument, documentType, webhookUrl } = req.body as Record<string, unknown>;
+  const { phoneNumber, declaredDocument, documentType } = req.body as Record<string, unknown>;
 
   if (!phoneNumber || typeof phoneNumber !== "string") {
     res.status(400).json({ error: "phoneNumber is required" });
@@ -211,13 +211,13 @@ router.post("/pluggy/connect-token", async (req: Request, res: Response): Promis
     res.status(400).json({ error: "documentType must be 'CPF' or 'CNPJ'" });
     return;
   }
-  if (webhookUrl !== undefined && typeof webhookUrl !== "string") {
-    res.status(400).json({ error: "webhookUrl must be a string URL" });
-    return;
-  }
 
   const normalizedDoc = normalizeDocument(declaredDocument);
   const clientUserId = `${phoneNumber}|${documentType}|${normalizedDoc}`;
+
+  // Webhook URL is always server-configured — never accepted from the caller
+  const serverBaseUrl = process.env.SERVER_BASE_URL ?? `https://${process.env.REPLIT_DEV_DOMAIN}`;
+  const serverWebhookUrl = `${serverBaseUrl}/api/pluggy/webhook`;
 
   try {
     const existing = await db
@@ -232,7 +232,7 @@ router.post("/pluggy/connect-token", async (req: Request, res: Response): Promis
 
     const connectToken = await createConnectToken({
       clientUserId,
-      webhookUrl: webhookUrl as string | undefined,
+      webhookUrl: serverWebhookUrl,
       itemId,
     });
 
@@ -519,8 +519,12 @@ router.post("/pluggy/webhook", verifyPluggySignature, async (req: Request, res: 
       if (!item.connector.isOpenFinance) {
         logger.warn(
           { itemId, connector: item.connector.name, phoneNumber: record.phoneNumber },
-          "Webhook: rejecting non-Open Finance connector — item discarded",
+          "Webhook: rejecting non-Open Finance connector — marking as mismatch",
         );
+        await db
+          .update(identityVerificationsTable)
+          .set({ status: "identity_mismatch", updatedAt: new Date() })
+          .where(eq(identityVerificationsTable.phoneNumber, record.phoneNumber));
         return;
       }
 
