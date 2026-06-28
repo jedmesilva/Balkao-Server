@@ -10,6 +10,7 @@ import {
   normalizeDocument,
 } from "../services/pluggy";
 import { logger } from "../lib/logger";
+import { verifyPluggySignature } from "../middlewares/verify-pluggy-signature";
 
 const router: IRouter = Router();
 
@@ -166,9 +167,12 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
   try {
     const redirectUrl = `${baseUrl}/api/pluggy/widget?phone=${encodeURIComponent(phoneNumber)}&return=1`;
     const webhookUrl = `${baseUrl}/api/pluggy/webhook`;
+    // Only forward itemId if it is a valid UUID — Pluggy rejects anything else
+    const existingItemId =
+      record.pluggyItemId && isUuid(record.pluggyItemId) ? record.pluggyItemId : undefined;
     connectToken = await createConnectToken({
       clientUserId: record.pluggyClientUserId ?? phoneNumber,
-      itemId: record.pluggyItemId ?? undefined,
+      itemId: existingItemId,
       webhookUrl,
       redirectUrl,
     });
@@ -223,7 +227,8 @@ router.post("/pluggy/connect-token", async (req: Request, res: Response): Promis
       .limit(1);
 
     const record = existing[0];
-    const itemId = record?.pluggyItemId ?? undefined;
+    // Only pass itemId if it is a valid UUID — Pluggy rejects non-UUID values
+    const itemId = record?.pluggyItemId && isUuid(record.pluggyItemId) ? record.pluggyItemId : undefined;
 
     const connectToken = await createConnectToken({
       clientUserId,
@@ -380,7 +385,7 @@ router.post("/pluggy/verify", async (req: Request, res: Response): Promise<void>
 });
 
 router.get("/pluggy/status/:phoneNumber", async (req: Request, res: Response): Promise<void> => {
-  const { phoneNumber } = req.params;
+  const phoneNumber = req.params.phoneNumber as string;
 
   try {
     const existing = await db
@@ -412,7 +417,7 @@ router.get("/pluggy/status/:phoneNumber", async (req: Request, res: Response): P
 });
 
 router.delete("/pluggy/revoke/:phoneNumber", async (req: Request, res: Response): Promise<void> => {
-  const { phoneNumber } = req.params;
+  const phoneNumber = req.params.phoneNumber as string;
 
   try {
     const existing = await db
@@ -427,7 +432,7 @@ router.delete("/pluggy/revoke/:phoneNumber", async (req: Request, res: Response)
       return;
     }
 
-    if (record.pluggyItemId) {
+    if (record.pluggyItemId && isUuid(record.pluggyItemId)) {
       await deleteItem(record.pluggyItemId);
       req.log.info({ phoneNumber, itemId: record.pluggyItemId }, "Pluggy item revoked");
     }
@@ -450,7 +455,7 @@ router.delete("/pluggy/revoke/:phoneNumber", async (req: Request, res: Response)
   }
 });
 
-router.post("/pluggy/webhook", async (req: Request, res: Response): Promise<void> => {
+router.post("/pluggy/webhook", verifyPluggySignature, async (req: Request, res: Response): Promise<void> => {
   const body = req.body as Record<string, unknown>;
   const event = body.event;
 
@@ -505,7 +510,22 @@ router.post("/pluggy/webhook", async (req: Request, res: Response): Promise<void
 
       const record = existing[0];
 
-      if (!record.pluggyItemId) {
+      // Fetch the item from Pluggy first — validate it exists and is trustworthy
+      // before persisting anything or touching verification status.
+      const item = await getItem(itemId);
+
+      // Enforce Open Finance requirement — same rule as /pluggy/verify.
+      // Non-OF connectors cannot be used for identity verification even via webhook.
+      if (!item.connector.isOpenFinance) {
+        logger.warn(
+          { itemId, connector: item.connector.name, phoneNumber: record.phoneNumber },
+          "Webhook: rejecting non-Open Finance connector — item discarded",
+        );
+        return;
+      }
+
+      // Now that the item is confirmed real and OF-regulated, persist the itemId.
+      if (!record.pluggyItemId && isUuid(itemId)) {
         await db
           .update(identityVerificationsTable)
           .set({ pluggyItemId: itemId, updatedAt: new Date() })
@@ -513,7 +533,6 @@ router.post("/pluggy/webhook", async (req: Request, res: Response): Promise<void
         logger.info({ itemId, phoneNumber: record.phoneNumber }, "Saved pluggyItemId from webhook");
       }
 
-      const item = await getItem(itemId);
       if (item.executionStatus !== "SUCCESS") {
         logger.info({ itemId, executionStatus: item.executionStatus }, "Item not yet successful, skipping identity check");
         return;
