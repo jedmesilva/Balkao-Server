@@ -163,9 +163,9 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
     return;
   }
 
+  const redirectUrl = `${baseUrl}/api/pluggy/widget?phone=${encodeURIComponent(phoneNumber)}&return=1`;
   let connectToken: string;
   try {
-    const redirectUrl = `${baseUrl}/api/pluggy/widget?phone=${encodeURIComponent(phoneNumber)}&return=1`;
     const webhookUrl = `${baseUrl}/api/pluggy/webhook`;
     // Only forward itemId if it is a valid UUID — Pluggy rejects anything else
     const existingItemId =
@@ -182,18 +182,56 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
     return;
   }
 
-  const pluggyUrl = `https://connect.pluggy.ai/?connectToken=${encodeURIComponent(connectToken)}&language=pt&sandbox=true`;
-
   res.send(`<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Balkao — Verificação de Identidade</title><style>${commonStyles}</style></head>
+<title>Balkao — Verificação de Identidade</title>
+<style>${commonStyles}</style>
+</head>
 <body><div class="card">
   <div class="logo">🏦</div>
   <h1>Verificação de Identidade</h1>
   <p>Conecte sua conta bancária via Open Finance (regulado pelo Banco Central) para confirmar sua identidade no Balkao.</p>
-  <a class="btn" href="${pluggyUrl}">Conectar conta bancária</a>
+  <button class="btn" id="connect-btn">Conectar conta bancária</button>
+  <div class="status info" id="statusBox" style="display:none"></div>
   <p class="lock" style="margin-top:16px">🔒 Sua senha bancária nunca é compartilhada com o Balkao</p>
-</div></body></html>`);
+</div>
+<script src="https://cdn.pluggy.ai/pluggy-connect/v2/pluggy-connect.js"></script>
+<script>
+  const CONNECT_TOKEN = ${JSON.stringify(connectToken)};
+  const REDIRECT_URL  = ${JSON.stringify(redirectUrl)};
+
+  const btn = document.getElementById('connect-btn');
+  const statusBox = document.getElementById('statusBox');
+
+  function showStatus(cls, msg) {
+    statusBox.className = 'status ' + cls;
+    statusBox.textContent = msg;
+    statusBox.style.display = '';
+  }
+
+  const pluggyConnect = new PluggyConnect({
+    connectToken: CONNECT_TOKEN,
+    sandbox: true,
+    language: 'pt',
+    onSuccess: function(itemData) {
+      showStatus('info', '⏳ Conexão realizada! Verificando sua identidade…');
+      setTimeout(function() { window.location.href = REDIRECT_URL; }, 1500);
+    },
+    onError: function(err) {
+      showStatus('error', '❌ Erro na conexão bancária. Tente novamente.');
+      btn.style.display = '';
+    },
+    onClose: function() {
+      btn.style.display = '';
+    },
+  });
+
+  btn.addEventListener('click', function() {
+    btn.style.display = 'none';
+    pluggyConnect.init();
+  });
+</script>
+</body></html>`);
 });
 
 router.post("/pluggy/connect-token", async (req: Request, res: Response): Promise<void> => {
