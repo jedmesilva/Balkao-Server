@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: pluggy
+    description: Pluggy Open Finance identity verification
 paths:
   /healthz:
     get:
@@ -24,6 +26,200 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /pluggy/connect-token:
+    post:
+      operationId: pluggyCreateConnectToken
+      tags: [pluggy]
+      summary: Create Pluggy Connect Token
+      description: >
+        Generates a connectToken for the Pluggy Connect Widget.
+        Creates or updates the verification record for the given phone number.
+        The connectToken must be passed to the Pluggy Connect Widget on the client side.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PluggyConnectTokenRequest"
+      responses:
+        "200":
+          description: Connect token generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluggyConnectTokenResponse"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /pluggy/verify:
+    post:
+      operationId: pluggyVerifyIdentity
+      tags: [pluggy]
+      summary: Verify identity after bank connection
+      description: >
+        After the user connects their bank via the Pluggy Widget, call this endpoint
+        with the itemId to fetch and compare the identity returned by the bank
+        against the declared document. Only Open Finance connectors are accepted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PluggyVerifyRequest"
+      responses:
+        "200":
+          description: Identity verified successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluggyVerifySuccessResponse"
+        "202":
+          description: Pending multi-party authorization (PJ multi-alçada)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluggyPendingResponse"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Verification record not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Identity mismatch or non-Open Finance connector
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluggyMismatchResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /pluggy/status/{phoneNumber}:
+    get:
+      operationId: pluggyGetStatus
+      tags: [pluggy]
+      summary: Get identity verification status
+      description: Returns the current verification status for a phone number.
+      parameters:
+        - name: phoneNumber
+          in: path
+          required: true
+          schema:
+            type: string
+          description: WhatsApp phone number (E.164 format, e.g. 5511999999999)
+      responses:
+        "200":
+          description: Verification status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluggyStatusResponse"
+        "404":
+          description: No record found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /pluggy/revoke/{phoneNumber}:
+    delete:
+      operationId: pluggyRevokeVerification
+      tags: [pluggy]
+      summary: Revoke identity verification
+      description: >
+        Deletes the Pluggy item (revokes Open Finance consent) and resets the
+        verification status to pending. The user must re-verify.
+      parameters:
+        - name: phoneNumber
+          in: path
+          required: true
+          schema:
+            type: string
+          description: WhatsApp phone number (E.164 format)
+      responses:
+        "200":
+          description: Verification revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                required: [message]
+        "404":
+          description: No record found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /pluggy/webhook:
+    post:
+      operationId: pluggyWebhook
+      tags: [pluggy]
+      summary: Pluggy webhook receiver
+      description: >
+        Receives item lifecycle events from Pluggy (item/created, item/updated,
+        item/error, etc.) and auto-updates verification status.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event:
+                  type: string
+                id:
+                  type: string
+                data:
+                  type: object
+      responses:
+        "200":
+          description: Webhook received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received:
+                    type: boolean
+                required: [received]
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +230,149 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        details:
+          type: array
+          items:
+            type: object
+      required:
+        - error
+
+    PluggyConnectTokenRequest:
+      type: object
+      properties:
+        phoneNumber:
+          type: string
+          description: WhatsApp phone number (E.164, e.g. 5511999999999)
+        declaredDocument:
+          type: string
+          description: CPF or CNPJ as declared by the user (with or without formatting)
+        documentType:
+          type: string
+          enum: [CPF, CNPJ]
+        webhookUrl:
+          type: string
+          format: uri
+          description: Optional URL to receive Pluggy item events
+      required:
+        - phoneNumber
+        - declaredDocument
+        - documentType
+
+    PluggyConnectTokenResponse:
+      type: object
+      properties:
+        connectToken:
+          type: string
+          description: Short-lived token (30min) to pass to the Pluggy Connect Widget
+      required:
+        - connectToken
+
+    PluggyVerifyRequest:
+      type: object
+      properties:
+        phoneNumber:
+          type: string
+        itemId:
+          type: string
+          format: uuid
+          description: Item ID returned by the Pluggy Connect Widget after connection
+      required:
+        - phoneNumber
+        - itemId
+
+    PluggyVerifySuccessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [identity_verified]
+        verifiedAt:
+          type: string
+          format: date-time
+        fullName:
+          type: string
+          nullable: true
+        documentType:
+          type: string
+          enum: [CPF, CNPJ]
+      required:
+        - status
+        - verifiedAt
+        - documentType
+
+    PluggyPendingResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending_multi_approval]
+        message:
+          type: string
+      required:
+        - status
+        - message
+
+    PluggyMismatchResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [identity_mismatch]
+        error:
+          type: string
+      required:
+        - status
+        - error
+
+    PluggyIdentityStatus:
+      type: string
+      enum:
+        - pending_identity_verification
+        - pluggy_widget_opened
+        - pending_multi_approval
+        - identity_mismatch
+        - identity_verified
+        - pending_reauth_full
+        - pending_sms_verification
+        - blocked_risk_flag
+        - blocked_possible_number_recycling
+
+    PluggyStatusResponse:
+      type: object
+      properties:
+        phoneNumber:
+          type: string
+        status:
+          $ref: "#/components/schemas/PluggyIdentityStatus"
+        documentType:
+          type: string
+          enum: [CPF, CNPJ]
+        verifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastSmsVerificationAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastBankReauthAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - phoneNumber
+        - status
+        - documentType
+        - createdAt
+        - updatedAt

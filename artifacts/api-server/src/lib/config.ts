@@ -6,6 +6,14 @@ function requireEnv(...keys: string[]): string {
   throw new Error(`Missing required environment variable: ${keys.join(" or ")}`);
 }
 
+function optionalEnv(...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (value) return value;
+  }
+  return undefined;
+}
+
 export const config = {
   whatsapp: {
     token: requireEnv("WHATSAPP_TOKEN", "WHATSAPP_ACCESS_TOKEN"),
@@ -13,5 +21,10 @@ export const config = {
     verifyToken: requireEnv("WHATSAPP_VERIFY_TOKEN"),
     appSecret: requireEnv("WHATSAPP_APP_SECRET"),
     apiVersion: process.env.WHATSAPP_API_VERSION ?? "v20.0",
+  },
+  pluggy: {
+    clientId: optionalEnv("PLUGGY_CLIENT_ID"),
+    clientSecret: optionalEnv("PLUGGY_CLIENT_SECRET"),
+    baseUrl: process.env.PLUGGY_BASE_URL ?? "https://api.pluggy.ai",
   },
 };
