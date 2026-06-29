@@ -156,14 +156,14 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
     if (record.status === "identity_verified") {
       res.send(`<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Balkao — Verificado ✓</title><style>${sharedStyles}
+<title>Balkao — Verificado</title><style>${sharedStyles}
   body { background: #f0faf5; }
   .card { border-top: 4px solid #1E8E5A; }
   .check-circle {
     width: 72px; height: 72px; border-radius: 50%;
-    background: #1E8E5A; color: #fff;
+    background: #1E8E5A;
     display: flex; align-items: center; justify-content: center;
-    font-size: 36px; margin: 0 auto 20px;
+    margin: 0 auto 20px;
     animation: pop 0.4s cubic-bezier(0.175,0.885,0.32,1.275) both;
   }
   @keyframes pop {
@@ -182,7 +182,9 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
   button.close-btn:hover { opacity: 0.88; }
 </style></head>
 <body><div class="card">
-  <div class="check-circle">✓</div>
+  <div class="check-circle">
+    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+  </div>
   <h1>Identidade verificada!</h1>
   <p class="sub">Sua identidade foi confirmada com sucesso. Você já pode voltar ao WhatsApp e continuar.</p>
   <button class="close-btn" onclick="window.close()">Fechar esta aba</button>
@@ -266,11 +268,10 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
   @keyframes spin { to { transform: rotate(360deg); } }
   .check-circle {
     width: 72px; height: 72px; border-radius: 50%;
-    background: #1E8E5A; color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 36px; margin: 0 auto 20px;
+    background: #1E8E5A;
+    display: none; align-items: center; justify-content: center;
+    margin: 0 auto 20px;
     animation: pop 0.4s cubic-bezier(0.175,0.885,0.32,1.275) both;
-    display: none;
   }
   @keyframes pop {
     from { transform: scale(0); opacity: 0; }
@@ -287,7 +288,9 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
 </style></head>
 <body><div class="card" id="card">
   <div class="logo" id="logo">B</div>
-  <div class="check-circle" id="checkCircle">✓</div>
+  <div class="check-circle" id="checkCircle">
+    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+  </div>
   <h1 id="title">Verificando sua identidade…</h1>
   <p class="sub" id="subtitle">Aguardando confirmação do banco. Isso pode levar alguns segundos.</p>
   <div class="spinner" id="spinner"></div>
@@ -309,7 +312,7 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
     document.getElementById('card').style.borderTop = '4px solid #1E8E5A';
     document.getElementById('logo').style.display = 'none';
     document.getElementById('spinner').style.display = 'none';
-    document.getElementById('checkCircle').style.display = 'flex';
+    document.getElementById('checkCircle').style.cssText += 'display:flex;';
     document.getElementById('title').textContent = 'Identidade verificada!';
     document.getElementById('title').style.color = '#1E8E5A';
     document.getElementById('title').style.fontSize = '22px';
