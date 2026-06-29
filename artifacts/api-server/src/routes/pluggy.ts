@@ -289,10 +289,21 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
       var pluggyConnect = new PluggyConnect({
         connectToken: CONNECT_TOKEN,
         includeSandbox: IS_SANDBOX,
-        onSuccess: function() {
+        onSuccess: function(data) {
           btn.style.display = 'none';
           showStatus('', 'Conexao realizada! Verificando sua identidade…');
-          setTimeout(function() { window.location.href = REDIRECT_URL; }, 1500);
+          // data.itemId is provided by PluggyConnect v2+ on success.
+          // We call the verify endpoint immediately — this is the primary
+          // verification path. The webhook is a secondary/redundant path.
+          var itemId = data && data.itemId;
+          if (itemId) {
+            fetch('/api/pluggy/verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phoneNumber: PHONE, itemId: itemId })
+            }).catch(function() { /* webhook will handle it as fallback */ });
+          }
+          setTimeout(function() { window.location.href = REDIRECT_URL; }, 2000);
         },
         onError: function() {
           btn.disabled = false;
@@ -585,9 +596,17 @@ router.post("/pluggy/webhook", verifyPluggySignature, async (req: Request, res: 
   res.status(200).json({ received: true });
 
   try {
+    // Pluggy webhook body is flat — fields are at the root, not inside a "data" sub-object.
+    // We keep the data fallback for forward-compatibility but always prefer root-level fields.
     const data = body.data as Record<string, unknown> | undefined;
-    const itemId = (data?.itemId as string | undefined) ?? (body.id as string | undefined);
-    const clientUserId = (data?.clientUserId as string | undefined);
+    const itemId =
+      (body.itemId as string | undefined) ??
+      (data?.itemId as string | undefined) ??
+      (body.id as string | undefined);
+    // clientUserId can be null when Pluggy sandbox doesn't propagate it.
+    // Read from root first, fallback to data sub-object, coerce null → undefined.
+    const clientUserId =
+      ((body.clientUserId ?? data?.clientUserId) as string | null | undefined) || undefined;
 
     if (!itemId) return;
 
