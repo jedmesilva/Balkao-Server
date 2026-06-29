@@ -289,6 +289,13 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
       webhookUrl,
       redirectUrl,
     });
+
+    // Mark the record as widget-opened so the webhook sandbox fallback can
+    // find exactly one recently-opened record and associate the incoming itemId.
+    await db
+      .update(identityVerificationsTable)
+      .set({ status: "pluggy_widget_opened", updatedAt: new Date() })
+      .where(eq(identityVerificationsTable.phoneNumber, phoneNumber));
   } catch (err) {
     logger.error({ err, phoneNumber }, "Widget: failed to generate connect token");
     res.status(500).send(`<!DOCTYPE html>
@@ -330,6 +337,8 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
   var CONNECT_TOKEN = ${safeJson(connectToken)};
   var REDIRECT_URL  = ${safeJson(redirectUrl)};
   var IS_SANDBOX    = ${safeJson(isSandbox)};
+  var PHONE         = ${safeJson(phoneNumber)};
+  var API_BASE      = ${safeJson(`${baseUrl}/api`)};
 
   var btn      = document.getElementById('connectBtn');
   var statusEl = document.getElementById('statusEl');
@@ -350,12 +359,15 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
         onSuccess: function(data) {
           btn.style.display = 'none';
           showStatus('', 'Conexao realizada! Verificando sua identidade…');
-          // data.itemId is provided by PluggyConnect v2+ on success.
-          // We call the verify endpoint immediately — this is the primary
-          // verification path. The webhook is a secondary/redundant path.
-          var itemId = data && data.itemId;
+          // PluggyConnect v2 passes {item:{id,...}} on success (not {itemId}).
+          // Try all known shapes across versions.
+          var itemId = data && (
+            data.itemId ||
+            (data.item && data.item.id) ||
+            (data.data && data.data.itemId)
+          );
           if (itemId) {
-            fetch('/api/pluggy/verify', {
+            fetch(API_BASE + '/pluggy/verify', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ phoneNumber: PHONE, itemId: itemId })
@@ -697,9 +709,33 @@ router.post("/pluggy/webhook", verifyPluggySignature, async (req: Request, res: 
         }
       }
 
+      // Sandbox fallback: Pluggy never sends clientUserId in sandbox webhooks.
+      // If we still have no match, look for a record with status=pluggy_widget_opened
+      // and no pluggyItemId that was touched in the last 10 minutes. If exactly one
+      // exists we can safely associate it (concurrent users would each have their own
+      // widget session but this is acceptable for MVP/sandbox use).
       if (!existing[0]) {
-        logger.warn({ itemId, clientUserId }, "Webhook: no matching verification record found");
-        return;
+        const cutoff = new Date(Date.now() - 10 * 60 * 1000);
+        const recentlyOpened = await db
+          .select()
+          .from(identityVerificationsTable)
+          .where(eq(identityVerificationsTable.status, "pluggy_widget_opened"))
+          .limit(2);
+
+        const candidates = recentlyOpened.filter(
+          (r) => !r.pluggyItemId && new Date(r.updatedAt) >= cutoff,
+        );
+
+        if (candidates.length === 1) {
+          existing = [candidates[0]!];
+          logger.info(
+            { itemId, phoneNumber: candidates[0]!.phoneNumber },
+            "Webhook: matched by recently-opened fallback (clientUserId null in sandbox)",
+          );
+        } else {
+          logger.warn({ itemId, clientUserId, candidates: candidates.length }, "Webhook: no matching verification record found");
+          return;
+        }
       }
 
       const record = existing[0];
