@@ -156,13 +156,42 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
     if (record.status === "identity_verified") {
       res.send(`<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Balkao — Verificado</title><style>${sharedStyles}</style></head>
+<title>Balkao — Verificado ✓</title><style>${sharedStyles}
+  body { background: #f0faf5; }
+  .card { border-top: 4px solid #1E8E5A; }
+  .check-circle {
+    width: 72px; height: 72px; border-radius: 50%;
+    background: #1E8E5A; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 36px; margin: 0 auto 20px;
+    animation: pop 0.4s cubic-bezier(0.175,0.885,0.32,1.275) both;
+  }
+  @keyframes pop {
+    from { transform: scale(0); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+  }
+  h1 { color: #1E8E5A; font-size: 22px; }
+  p.sub { margin-bottom: 24px; }
+  button.close-btn {
+    background: #1E8E5A; color: #fff;
+    border: none; border-radius: 12px;
+    padding: 14px 20px; font-size: 15px; font-weight: 600;
+    width: 100%; cursor: pointer; margin-bottom: 12px;
+    transition: opacity 0.15s ease;
+  }
+  button.close-btn:hover { opacity: 0.88; }
+</style></head>
 <body><div class="card">
-  <div class="logo">B</div>
-  <h1>Identidade verificada</h1>
-  <p class="sub">Sua identidade foi confirmada com sucesso. Pode fechar esta aba e voltar ao WhatsApp para continuar.</p>
-  <p class="lock">Seus dados bancarios nunca sao compartilhados com o Balkao</p>
-</div></body></html>`);
+  <div class="check-circle">✓</div>
+  <h1>Identidade verificada!</h1>
+  <p class="sub">Sua identidade foi confirmada com sucesso. Você já pode voltar ao WhatsApp e continuar.</p>
+  <button class="close-btn" onclick="window.close()">Fechar esta aba</button>
+  <p class="lock">Seus dados bancários nunca são compartilhados com o Balkao</p>
+</div>
+<script>
+  try { window.close(); } catch(e) {}
+</script>
+</body></html>`);
       return;
     }
 
@@ -226,35 +255,87 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
     const apiBase = `${baseUrl}/api`;
     res.send(`<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Balkao — Verificando…</title><style>${sharedStyles}</style></head>
-<body><div class="card">
-  <div class="logo">B</div>
-  <h1>Verificando sua identidade…</h1>
-  <p class="sub">Aguardando confirmacao do banco. Isso pode levar alguns segundos.</p>
-  <div class="status" id="statusBox">Processando conexao bancaria…</div>
-  <p class="lock">Seus dados bancarios nunca sao compartilhados com o Balkao</p>
+<title>Balkao — Verificando…</title><style>${sharedStyles}
+  .spinner {
+    width: 40px; height: 40px; margin: 0 auto 20px;
+    border: 3px solid #E8E4DF;
+    border-top-color: var(--ink);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .check-circle {
+    width: 72px; height: 72px; border-radius: 50%;
+    background: #1E8E5A; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 36px; margin: 0 auto 20px;
+    animation: pop 0.4s cubic-bezier(0.175,0.885,0.32,1.275) both;
+    display: none;
+  }
+  @keyframes pop {
+    from { transform: scale(0); opacity: 0; }
+    to   { transform: scale(1); opacity: 1; }
+  }
+  button.close-btn {
+    background: #1E8E5A; color: #fff;
+    border: none; border-radius: 12px;
+    padding: 14px 20px; font-size: 15px; font-weight: 600;
+    width: 100%; cursor: pointer; margin-top: 20px;
+    transition: opacity 0.15s ease; display: none;
+  }
+  button.close-btn:hover { opacity: 0.88; }
+</style></head>
+<body><div class="card" id="card">
+  <div class="logo" id="logo">B</div>
+  <div class="check-circle" id="checkCircle">✓</div>
+  <h1 id="title">Verificando sua identidade…</h1>
+  <p class="sub" id="subtitle">Aguardando confirmação do banco. Isso pode levar alguns segundos.</p>
+  <div class="spinner" id="spinner"></div>
+  <div class="status" id="statusBox">Processando conexão bancária…</div>
+  <button class="close-btn" id="closeBtn" onclick="window.close()">Fechar esta aba</button>
+  <p class="lock">Seus dados bancários nunca são compartilhados com o Balkao</p>
 </div>
 <script>
   var PHONE = ${safeJson(phoneNumber)};
   var API = ${safeJson(apiBase)};
   var attempts = 0;
   var MAX = 30;
+  var done = false;
   var statusEl = document.getElementById('statusBox');
 
+  function showSuccess() {
+    done = true;
+    document.body.style.background = '#f0faf5';
+    document.getElementById('card').style.borderTop = '4px solid #1E8E5A';
+    document.getElementById('logo').style.display = 'none';
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('checkCircle').style.display = 'flex';
+    document.getElementById('title').textContent = 'Identidade verificada!';
+    document.getElementById('title').style.color = '#1E8E5A';
+    document.getElementById('title').style.fontSize = '22px';
+    document.getElementById('subtitle').textContent = 'Sua identidade foi confirmada com sucesso. Você já pode voltar ao WhatsApp e continuar.';
+    statusEl.style.display = 'none';
+    document.getElementById('closeBtn').style.display = 'block';
+    try { window.close(); } catch(e) {}
+  }
+
+  function showError(msg) {
+    done = true;
+    document.getElementById('spinner').style.display = 'none';
+    statusEl.className = 'status error';
+    statusEl.textContent = msg;
+  }
+
   function poll() {
+    if (done) return;
     attempts++;
     fetch(API + '/pluggy/status/' + encodeURIComponent(PHONE))
       .then(function(r) { return r.ok ? r.json() : null; })
       .then(function(d) {
         if (!d) return schedule();
-        if (d.status === 'identity_verified') {
-          statusEl.className = 'status success';
-          statusEl.textContent = 'Identidade verificada! Pode fechar esta aba e voltar ao WhatsApp.';
-          return;
-        }
+        if (d.status === 'identity_verified') { showSuccess(); return; }
         if (d.status === 'identity_mismatch') {
-          statusEl.className = 'status error';
-          statusEl.textContent = 'Documento nao confere com o cadastrado no banco. Entre em contato pelo WhatsApp.';
+          showError('Documento não confere com o cadastrado no banco. Entre em contato pelo WhatsApp.');
           return;
         }
         schedule();
@@ -265,8 +346,8 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
   function schedule() {
     if (attempts < MAX) setTimeout(poll, 3000);
     else {
-      statusEl.className = 'status';
-      statusEl.textContent = 'A verificacao ainda esta em andamento. Aguarde a confirmacao pelo WhatsApp.';
+      document.getElementById('spinner').style.display = 'none';
+      statusEl.textContent = 'A verificação ainda está em andamento. Aguarde a confirmação pelo WhatsApp.';
     }
   }
 
