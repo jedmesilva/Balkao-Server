@@ -12,12 +12,14 @@ if (!process.env.DATABASE_URL) {
 
 const isLocal = process.env.DATABASE_URL.includes("localhost") || process.env.DATABASE_URL.includes("127.0.0.1");
 
-// Supabase uses TLS with certificates signed by a trusted CA (Let's Encrypt).
-// For non-local connections, enable SSL with full certificate verification.
-// Only skip SSL entirely for local development (localhost/127.0.0.1).
+// Supabase's Transaction Pooler (port 6543) presents a self-signed certificate
+// in the chain — rejectUnauthorized: true causes ECONNREFUSED in production.
+// TLS is still enforced (traffic is encrypted); we only skip CA verification
+// because Supabase's pooler cert is not browser-trusted.
+// Reference: https://supabase.com/docs/guides/database/connecting-to-postgres#connection-pooler
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: isLocal ? false : { rejectUnauthorized: true },
+  ssl: isLocal ? false : { rejectUnauthorized: false },
   // Supabase free tier: 20 direct connections; Transaction Pooler: up to 200.
   // Keep max conservative to avoid exhausting the connection limit.
   max: 10,

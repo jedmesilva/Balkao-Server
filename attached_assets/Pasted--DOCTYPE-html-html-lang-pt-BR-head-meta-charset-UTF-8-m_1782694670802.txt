@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Balkao — Verificação de Identidade (Sandbox)</title>
+<script src="https://cdn.pluggy.ai/pluggy-connect/v2.9.2/pluggy-connect.js"></script>
+<style>
+  :root {
+    --bg: #F5F0EB;
+    --ink: #1A1A1A;
+    --accent: #E8622A;
+    --muted: #8A8378;
+    --card: #FFFFFF;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    background: var(--card);
+    border-radius: 20px;
+    max-width: 420px;
+    width: 100%;
+    padding: 32px 28px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06);
+    text-align: center;
+  }
+  .logo {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    background: var(--ink);
+    color: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 22px;
+    margin: 0 auto 20px;
+  }
+  h1 {
+    font-size: 19px;
+    font-weight: 600;
+    margin: 0 0 8px;
+  }
+  p.sub {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0 0 28px;
+  }
+  .badge {
+    display: inline-block;
+    background: #FCEFE8;
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 100px;
+    margin-bottom: 16px;
+  }
+  button.primary {
+    background: var(--ink);
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    padding: 14px 20px;
+    font-size: 15px;
+    font-weight: 600;
+    width: 100%;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+  }
+  button.primary:hover { opacity: 0.88; }
+  button.primary:disabled { opacity: 0.5; cursor: default; }
+  .status {
+    margin-top: 20px;
+    font-size: 13px;
+    color: var(--muted);
+    min-height: 18px;
+  }
+  .status.success { color: #1E8E5A; font-weight: 600; }
+  .status.error { color: #C0392B; font-weight: 600; }
+  .testdata {
+    margin-top: 28px;
+    text-align: left;
+    background: var(--bg);
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .testdata strong { color: var(--ink); }
+  code {
+    background: #fff;
+    padding: 1px 6px;
+    border-radius: 6px;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="badge">Sandbox · Ambiente de teste</div>
+  <div class="logo">B</div>
+  <h1>Verificação de identidade</h1>
+  <p class="sub">Conecte sua conta bancária para confirmarmos sua identidade e liberar compra e venda no Balkao.</p>
+
+  <button class="primary" id="connectBtn">Conectar minha conta</button>
+
+  <div class="status" id="status"></div>
+
+  <div class="testdata">
+    <strong>Dados de teste (Sandbox)</strong><br/>
+    CPF: <code>761.092.776-73</code> (fluxo de sucesso)<br/>
+    Senha: <code>P@ssword01</code>
+  </div>
+</div>
+
+<script>
+  // Em produção, este token vem do backend (FastAPI), gerado por usuário/sessão.
+  // Aqui está vazio de propósito — substitua pelo connectToken real gerado via API.
+  const CONNECT_TOKEN = "COLE_AQUI_O_CONNECT_TOKEN_GERADO_PELO_BACKEND";
+
+  const statusEl = document.getElementById('status');
+  const btn = document.getElementById('connectBtn');
+
+  btn.addEventListener('click', () => {
+    if (!CONNECT_TOKEN || CONNECT_TOKEN.startsWith("COLE_AQUI")) {
+      statusEl.textContent = "Configure um connectToken válido no código para testar.";
+      statusEl.className = "status error";
+      return;
+    }
+
+    btn.disabled = true;
+    statusEl.textContent = "Abrindo conexão segura...";
+    statusEl.className = "status";
+
+    const pluggyConnect = new PluggyConnect({
+      connectToken: CONNECT_TOKEN,
+      includeSandbox: true, // essencial para aparecerem os conectores de teste
+      onSuccess: (itemData) => {
+        statusEl.textContent = "Identidade verificada com sucesso! Pode voltar ao WhatsApp.";
+        statusEl.className = "status success";
+        console.log("itemId:", itemData.item.id);
+
+        // Em produção: enviar itemData.item.id para o backend do Balkao
+        // fetch('/webhook/pluggy-success', { method: 'POST', body: JSON.stringify({ itemId: itemData.item.id }) })
+      },
+      onError: (error) => {
+        statusEl.textContent = "Algo deu errado. Tente novamente pelo WhatsApp.";
+        statusEl.className = "status error";
+        btn.disabled = false;
+        console.error(error);
+      },
+      onClose: () => {
+        btn.disabled = false;
+      }
+    });
+
+    pluggyConnect.init();
+  });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,99 @@
+# Tarefa: Integração Pluggy (Open Finance) para Verificação de Identidade — Balkao
+
+## Contexto
+
+O Balkao é uma plataforma de compra/venda intermediada via WhatsApp. Antes de um usuário poder comprar ou vender, precisamos confirmar que ele é, de fato, o titular do CPF (pessoa física) ou está autorizado a operar em nome do CNPJ (pessoa jurídica) que ele informou no cadastro.
+
+Vamos usar a **Pluggy** (provedor de Open Finance) para isso: o usuário conecta a própria conta bancária via login OAuth real no banco dele, e a Pluggy nos devolve o nome/CPF (ou razão social/CNPJ) do titular dessa conta. Comparamos esse dado com o que o usuário declarou no cadastro.
+
+**Importante: comece sempre pelo ambiente Sandbox da Pluggy (gratuito, sem prazo de expiração, com bancos mockados) — não em produção.**
+
+## Passo 0 — Investigação obrigatória antes de codar
+
+Antes de criar qualquer coisa, investigue e me reporte o que encontrar:
+
+1. **Estrutura do projeto FastAPI existente**: como estão organizadas as rotas, models, configs (ex: `app/routers`, `app/models`, variáveis de ambiente). Use a estrutura e convenções já existentes — não crie um padrão novo de organização de pastas.
+2. **Schema atual do Supabase**: liste as tabelas relevantes (provavelmente existe algo como `users` ou `usuarios`). Verifique se já existem colunas para CPF/CNPJ, telefone/WhatsApp, e status de verificação. Reporte o schema atual antes de propor qualquer alteração.
+3. **Variáveis de ambiente já configuradas** (`.env` ou Secrets do Replit) — verifique se já existe algo relacionado a Pluggy, Asaas, ou outras integrações, para seguir o mesmo padrão de nomenclatura.
+
+Não prossiga para o Passo 1 sem reportar esses três pontos primeiro.
+
+## Passo 1 — Modelagem de dados (Supabase)
+
+Com base no que encontrar no Passo 0, proponha (não execute ainda, apenas proponha) as alterações necessárias no schema do Supabase para suportar:
+
+- `pluggy_item_id` (string, nullable) — id da conexão Pluggy mais recente
+- `identity_verification_status` (enum/string): `pending`, `verified`, `identity_mismatch`, `failed`
+- `verified_name` e `verified_document` (dado retornado pela Pluggy, para auditoria)
+- `last_identity_verified_at` (timestamp) — data da última verificação bem-sucedida
+- `last_sms_verification_at` (timestamp) — para a lógica de reautenticação periódica (ver Passo 5)
+- Se o usuário puder ser PF ou PJ, considere se isso já existe como campo de tipo de conta, ou se precisa ser adicionado
+
+Aguarde minha confirmação antes de aplicar migrations no Supabase.
+
+## Passo 2 — Credenciais e configuração
+
+1. Crie uma conta no dashboard da Pluggy (`dashboard.pluggy.ai`) — **caso eu já tenha uma, vou fornecer as credenciais via Secrets do Replit**: `PLUGGY_CLIENT_ID` e `PLUGGY_CLIENT_SECRET`.
+2. Use o ambiente de **Desenvolvimento/Sandbox** da Pluggy primeiro.
+3. Implemente uma função utilitária no backend que:
+   - Gera a `apiKey` (válida por 2h) a partir de `clientId` + `clientSecret`
+   - Faz cache dela em memória até expirar, evitando gerar uma nova a cada requisição
+   - Gera o `connectToken` (válido por 30 min) a partir da `apiKey`, recebendo um `clientUserId` no formato `"nome | email | cpf_ou_cnpj"`
+
+## Passo 3 — Endpoint para iniciar a verificação
+
+Crie um endpoint (ex: `POST /identity/start-verification`) que:
+1. Recebe o identificador do usuário do Balkao (id interno, não o CPF)
+2. Busca no Supabase o CPF/CNPJ e nome já declarados no cadastro desse usuário
+3. Gera um `connectToken` novo
+4. Retorna uma URL para o usuário acessar (ex: `https://<dominio-do-replit>/verificar?token=<connectToken>`)
+
+Essa URL é o que será enviado ao usuário via WhatsApp (fora do escopo desta tarefa — presuma que outro serviço cuida do envio da mensagem).
+
+## Passo 4 — Página de verificação (frontend mínimo)
+
+Crie uma rota que sirva uma página HTML simples (pode ser um template Jinja2 servido pelo próprio FastAPI, ou uma rota estática) com o **Pluggy Connect Widget**, carregado via CDN (sem necessidade de build de frontend separado, sem React).
+
+Requisitos da página:
+- Recebe o `connectToken` via query string
+- Usa `includeSandbox: true` enquanto estivermos em ambiente de Sandbox (deve ser configurável por variável de ambiente, para desligar isso em produção)
+- No callback `onSuccess`, captura o `itemId` retornado e envia para um endpoint do backend (ex: `POST /identity/webhook-success`) via `fetch`
+- Mostra mensagem de sucesso/erro simples ao usuário, instruindo a voltar para o WhatsApp
+
+Use como referência visual: paleta off-white quente (#F5F0EB), botões escuros quase pretos, accent laranja (#E8622A), tipografia limpa, sem emojis — seguindo o design system já usado nos outros produtos do Balkao/MAISOR. Se o projeto já tiver um template base ou design tokens, reaproveite-os.
+
+## Passo 5 — Endpoint de callback e lógica de comparação
+
+Crie o endpoint que recebe o `itemId` do frontend (ou idealmente, configure também um **webhook da Pluggy** para isso, que é mais confiável que depender do frontend chamar de volta):
+
+1. Consulta a **Identity API** da Pluggy (`GET /identity?itemId=...`) usando o `itemId` recebido
+2. Extrai `{nome, cpf}` (PF) ou `{razão social, cnpj}` (PJ) retornado
+3. Compara com o que está cadastrado no Supabase para esse usuário:
+   - Bate → atualiza `identity_verification_status = 'verified'`, salva `verified_name`, `verified_document`, `last_identity_verified_at = now()`
+   - Não bate → atualiza para `identity_mismatch`, **não libera** comprar/vender, registra o motivo para auditoria
+
+## Passo 6 — Filtro de conectores (Open Finance regulado apenas)
+
+Garanta que a lista de bancos exibida no widget priorize ou filtre para conectores com `isOpenFinance: true` — isso é uma decisão de arquitetura: só queremos aceitar conexões via login OAuth real no banco, não conectores legados de credenciais diretas. Verifique na documentação da Pluggy (`GET /connectors`) como aplicar esse filtro na configuração do widget ou na lista exibida.
+
+## Passo 7 — Lógica de reautenticação periódica (pode ser implementada depois, like v2 — apenas deixe a estrutura de dados pronta)
+
+Não implemente a lógica completa agora, mas garanta que o schema do Passo 1 suporte isso no futuro:
+- Se `last_sms_verification_at` > 45 dias **e** o usuário ficou sem interação no período → próxima ação sensível deve exigir SMS de confirmação de número + nova verificação Pluggy completa
+- Se o usuário manteve uso contínuo (sem ficar inativo) → ao completar 45 dias, exigir apenas SMS de rotina, sem nova verificação Pluggy
+
+Isso será detalhado numa tarefa futura — não implemente a lógica de SMS agora, é fora de escopo desta tarefa.
+
+## O que NÃO fazer nesta tarefa
+
+- Não implemente Payment Initiation (Pix via Pluggy) — fora de escopo.
+- Não implemente envio de SMS — fora de escopo, será uma tarefa separada.
+- Não implemente o envio da mensagem do WhatsApp com o link — presuma que isso já existe ou será feito separadamente; apenas gere a URL.
+- Não vá para produção/credenciais reais sem confirmação explícita — fique em Sandbox até eu validar o fluxo.
+
+## Ordem de execução esperada
+
+1. Reportar achados do Passo 0
+2. Propor schema do Passo 1 e aguardar aprovação
+3. Implementar Passos 2–6 em Sandbox
+4. Me avisar quando estiver pronto para eu testar o fluxo ponta a ponta com os dados de teste da Pluggy (CPF `761.092.776-73`, senha `P@ssword01`)

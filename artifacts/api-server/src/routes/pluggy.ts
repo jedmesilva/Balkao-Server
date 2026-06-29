@@ -11,6 +11,7 @@ import {
 } from "../services/pluggy";
 import { logger } from "../lib/logger";
 import { verifyPluggySignature } from "../middlewares/verify-pluggy-signature";
+import { config } from "../lib/config";
 
 const router: IRouter = Router();
 
@@ -47,56 +48,91 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
     return;
   }
 
-  const commonStyles = `
+  const isSandbox = config.pluggy.sandbox;
+
+  const sharedStyles = `
+    :root {
+      --bg: #F5F0EB;
+      --ink: #1A1A1A;
+      --accent: #E8622A;
+      --muted: #8A8378;
+      --card: #FFFFFF;
+      --success: #1E8E5A;
+      --error: #C0392B;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #f5f5f5;
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
       display: flex;
       align-items: center;
       justify-content: center;
       min-height: 100vh;
-      padding: 20px;
+      padding: 24px;
     }
     .card {
-      background: #fff;
-      border-radius: 16px;
-      padding: 40px 32px;
+      background: var(--card);
+      border-radius: 20px;
       max-width: 420px;
       width: 100%;
+      padding: 32px 28px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06);
       text-align: center;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.10);
     }
-    .logo { font-size: 2rem; margin-bottom: 8px; }
-    h1 { font-size: 1.3rem; color: #111; margin-bottom: 8px; }
-    p { color: #555; font-size: 0.95rem; line-height: 1.5; margin-bottom: 20px; }
-    .btn {
-      display: block;
-      background: #1a73e8;
-      color: #fff;
-      border: none;
-      border-radius: 10px;
-      padding: 14px 28px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      width: 100%;
-      text-decoration: none;
-      transition: background 0.2s;
+    .logo {
+      width: 56px; height: 56px;
+      border-radius: 14px;
+      background: var(--ink);
+      color: var(--bg);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 22px;
+      margin: 0 auto 20px;
     }
-    .btn:hover { background: #1557b0; }
+    .badge {
+      display: inline-block;
+      background: #FCEFE8;
+      color: var(--accent);
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 100px;
+      margin-bottom: 16px;
+    }
+    h1 { font-size: 19px; font-weight: 600; margin: 0 0 8px; }
+    p.sub {
+      color: var(--muted); font-size: 14px; line-height: 1.5;
+      margin: 0 0 28px;
+    }
+    button.primary {
+      background: var(--ink); color: #fff;
+      border: none; border-radius: 12px;
+      padding: 14px 20px;
+      font-size: 15px; font-weight: 600;
+      width: 100%; cursor: pointer;
+      transition: opacity 0.15s ease;
+    }
+    button.primary:hover { opacity: 0.88; }
+    button.primary:disabled { opacity: 0.5; cursor: default; }
     .status {
-      margin-top: 20px;
-      padding: 14px;
-      border-radius: 10px;
-      font-size: 0.95rem;
+      margin-top: 20px; font-size: 13px;
+      color: var(--muted); min-height: 18px;
     }
-    .status.success { background: #e6f4ea; color: #1e7e34; }
-    .status.error   { background: #fce8e6; color: #c5221f; }
-    .status.info    { background: #e8f0fe; color: #1a56db; }
-    .lock { font-size: 0.8rem; color: #aaa; margin-top: 16px; }
-    .spinner { display: inline-block; width: 18px; height: 18px; border: 3px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    .status.success { color: var(--success); font-weight: 600; }
+    .status.error { color: var(--error); font-weight: 600; }
+    .testdata {
+      margin-top: 28px; text-align: left;
+      background: var(--bg); border-radius: 12px;
+      padding: 14px 16px; font-size: 12px;
+      color: var(--muted); line-height: 1.6;
+    }
+    .testdata strong { color: var(--ink); }
+    code {
+      background: #fff; padding: 1px 6px;
+      border-radius: 6px; font-size: 12px;
+    }
+    .lock { font-size: 11px; color: var(--muted); margin-top: 20px; }
   `;
 
   res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -106,12 +142,12 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
     if (statusNow === "identity_verified") {
       res.send(`<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Balkao — Verificado</title><style>${commonStyles}</style></head>
+<title>Balkao — Verificado</title><style>${sharedStyles}</style></head>
 <body><div class="card">
-  <div class="logo">✅</div>
-  <h1>Identidade verificada!</h1>
-  <p>Sua identidade foi confirmada com sucesso. Pode fechar esta aba e voltar ao WhatsApp para continuar.</p>
-  <p class="lock">🔒 Seus dados bancários nunca são compartilhados com o Balkao</p>
+  <div class="logo">B</div>
+  <h1>Identidade verificada</h1>
+  <p class="sub">Sua identidade foi confirmada com sucesso. Pode fechar esta aba e voltar ao WhatsApp para continuar.</p>
+  <p class="lock">Seus dados bancarios nunca sao compartilhados com o Balkao</p>
 </div></body></html>`);
       return;
     }
@@ -119,44 +155,50 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
     const apiBase = `${baseUrl}/api`;
     res.send(`<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Balkao — Verificando…</title><style>${commonStyles}</style></head>
+<title>Balkao — Verificando…</title><style>${sharedStyles}</style></head>
 <body><div class="card">
-  <div class="logo">🏦</div>
+  <div class="logo">B</div>
   <h1>Verificando sua identidade…</h1>
-  <div class="status info" id="statusBox">⏳ Aguardando confirmação do banco. Isso pode levar alguns segundos…</div>
-  <p class="lock" style="margin-top:24px">🔒 Seus dados bancários nunca são compartilhados com o Balkao</p>
+  <p class="sub">Aguardando confirmacao do banco. Isso pode levar alguns segundos.</p>
+  <div class="status" id="statusBox">Processando conexao bancaria…</div>
+  <p class="lock">Seus dados bancarios nunca sao compartilhados com o Balkao</p>
 </div>
 <script>
-  const PHONE = ${JSON.stringify(phoneNumber)};
-  const API = ${JSON.stringify(apiBase)};
-  let attempts = 0;
-  const MAX = 30;
+  var PHONE = ${JSON.stringify(phoneNumber)};
+  var API = ${JSON.stringify(apiBase)};
+  var attempts = 0;
+  var MAX = 30;
+  var statusEl = document.getElementById('statusBox');
 
-  async function poll() {
+  function poll() {
     attempts++;
-    try {
-      const r = await fetch(API + '/pluggy/status/' + encodeURIComponent(PHONE));
-      if (r.ok) {
-        const d = await r.json();
+    fetch(API + '/pluggy/status/' + encodeURIComponent(PHONE))
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) {
+        if (!d) return schedule();
         if (d.status === 'identity_verified') {
-          document.getElementById('statusBox').className = 'status success';
-          document.getElementById('statusBox').textContent = '✅ Identidade verificada! Pode fechar esta aba e voltar ao WhatsApp.';
+          statusEl.className = 'status success';
+          statusEl.textContent = 'Identidade verificada! Pode fechar esta aba e voltar ao WhatsApp.';
           return;
         }
         if (d.status === 'identity_mismatch') {
-          document.getElementById('statusBox').className = 'status error';
-          document.getElementById('statusBox').textContent = '❌ Documento não confere com o cadastrado no banco. Entre em contato pelo WhatsApp.';
+          statusEl.className = 'status error';
+          statusEl.textContent = 'Documento nao confere com o cadastrado no banco. Entre em contato pelo WhatsApp.';
           return;
         }
-      }
-    } catch(e) {}
-    if (attempts < MAX) {
-      setTimeout(poll, 3000);
-    } else {
-      document.getElementById('statusBox').className = 'status info';
-      document.getElementById('statusBox').textContent = '⏳ A verificação ainda está em andamento. Aguarde a confirmação pelo WhatsApp.';
+        schedule();
+      })
+      .catch(function() { schedule(); });
+  }
+
+  function schedule() {
+    if (attempts < MAX) setTimeout(poll, 3000);
+    else {
+      statusEl.className = 'status';
+      statusEl.textContent = 'A verificacao ainda esta em andamento. Aguarde a confirmacao pelo WhatsApp.';
     }
   }
+
   setTimeout(poll, 2000);
 </script>
 </body></html>`);
@@ -178,64 +220,80 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
     });
   } catch (err) {
     logger.error({ err, phoneNumber }, "Widget: failed to generate connect token");
-    res.status(500).send("<h2>Erro ao gerar token de conexão. Tente novamente.</h2>");
+    res.status(500).send(`<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Balkao — Erro</title><style>${sharedStyles}</style></head>
+<body><div class="card">
+  <div class="logo">B</div>
+  <h1>Algo deu errado</h1>
+  <p class="sub">Nao foi possivel gerar o token de conexao. Tente novamente pelo WhatsApp.</p>
+</div></body></html>`);
     return;
   }
 
+  const sandboxBadge = isSandbox ? '<div class="badge">Sandbox · Ambiente de teste</div>' : '';
+  const sandboxTestData = isSandbox ? `
+  <div class="testdata">
+    <strong>Dados de teste (Sandbox)</strong><br/>
+    CPF: <code>761.092.776-73</code> (fluxo de sucesso)<br/>
+    Senha: <code>P@ssword01</code>
+  </div>` : '';
+
   res.send(`<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Balkao — Verificação de Identidade</title>
-<style>${commonStyles}</style>
+<title>Balkao — Verificacao de Identidade</title>
+<style>${sharedStyles}</style>
+<script src="https://cdn.pluggy.ai/pluggy-connect/v2.9.2/pluggy-connect.js"></script>
 </head>
 <body><div class="card">
-  <h1>Verificação de Identidade</h1>
-  <p>Para confirmar quem você é, conecte sua conta bancária via Open Finance — o sistema regulado pelo Banco Central.</p>
-  <button class="btn" id="connect-btn">Selecionar meu banco</button>
-  <div class="status" id="statusBox" style="display:none"></div>
-  <p class="lock">Sua senha bancária nunca é compartilhada com o Balkao</p>
+  ${sandboxBadge}
+  <div class="logo">B</div>
+  <h1>Verificacao de identidade</h1>
+  <p class="sub">Conecte sua conta bancaria para confirmarmos sua identidade e liberar compra e venda no Balkao.</p>
+  <button class="primary" id="connectBtn">Conectar minha conta</button>
+  <div class="status" id="statusEl"></div>
+  ${sandboxTestData}
+  <p class="lock">Sua senha bancaria nunca e compartilhada com o Balkao</p>
 </div>
-<script src="https://cdn.pluggy.ai/pluggy-connect/v2.1.0/pluggy-connect.js"></script>
 <script>
   var CONNECT_TOKEN = ${JSON.stringify(connectToken)};
   var REDIRECT_URL  = ${JSON.stringify(redirectUrl)};
+  var IS_SANDBOX    = ${JSON.stringify(isSandbox)};
 
-  var btn       = document.getElementById('connect-btn');
-  var statusBox = document.getElementById('statusBox');
+  var btn      = document.getElementById('connectBtn');
+  var statusEl = document.getElementById('statusEl');
 
   function showStatus(cls, msg) {
-    statusBox.className = 'status ' + cls;
-    statusBox.textContent = msg;
-    statusBox.style.display = '';
+    statusEl.className = 'status ' + cls;
+    statusEl.textContent = msg;
   }
 
   btn.addEventListener('click', function() {
     btn.disabled = true;
-    btn.textContent = 'Aguarde…';
+    statusEl.textContent = 'Abrindo conexao segura…';
 
     try {
       var pluggyConnect = new PluggyConnect({
         connectToken: CONNECT_TOKEN,
+        includeSandbox: IS_SANDBOX,
         onSuccess: function() {
           btn.style.display = 'none';
-          showStatus('info', 'Conexão realizada! Verificando sua identidade…');
+          showStatus('', 'Conexao realizada! Verificando sua identidade…');
           setTimeout(function() { window.location.href = REDIRECT_URL; }, 1500);
         },
-        onError: function(err) {
+        onError: function() {
           btn.disabled = false;
-          btn.textContent = 'Tentar novamente';
-          showStatus('error', 'Erro na conexão bancária. Tente novamente.');
+          showStatus('error', 'Algo deu errado. Tente novamente pelo WhatsApp.');
         },
         onClose: function() {
           btn.disabled = false;
-          btn.textContent = 'Selecionar meu banco';
-          statusBox.style.display = 'none';
+          statusEl.textContent = '';
         },
       });
       pluggyConnect.init();
     } catch(e) {
       btn.disabled = false;
-      btn.textContent = 'Tentar novamente';
-      showStatus('error', 'Erro ao carregar o widget. Verifique sua conexão e tente novamente.');
+      showStatus('error', 'Erro ao carregar o widget. Verifique sua conexao e tente novamente.');
     }
   });
 </script>
