@@ -23,6 +23,19 @@ function isUuid(v: unknown): boolean {
   return typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 }
 
+/**
+ * Safely serialize a value for embedding inside an HTML <script> block.
+ * JSON.stringify alone does NOT escape </script>, so a crafted string can
+ * break out of script context. We replace <, >, and & with Unicode escapes
+ * that are valid JSON and safe inside <script> tags.
+ */
+function safeJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
+}
+
 router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> => {
   const phoneNumber = req.query["phone"] as string | undefined;
   const isReturn = req.query["return"] === "1";
@@ -164,8 +177,8 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
   <p class="lock">Seus dados bancarios nunca sao compartilhados com o Balkao</p>
 </div>
 <script>
-  var PHONE = ${JSON.stringify(phoneNumber)};
-  var API = ${JSON.stringify(apiBase)};
+  var PHONE = ${safeJson(phoneNumber)};
+  var API = ${safeJson(apiBase)};
   var attempts = 0;
   var MAX = 30;
   var statusEl = document.getElementById('statusBox');
@@ -256,9 +269,9 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
   <p class="lock">Sua senha bancaria nunca e compartilhada com o Balkao</p>
 </div>
 <script>
-  var CONNECT_TOKEN = ${JSON.stringify(connectToken)};
-  var REDIRECT_URL  = ${JSON.stringify(redirectUrl)};
-  var IS_SANDBOX    = ${JSON.stringify(isSandbox)};
+  var CONNECT_TOKEN = ${safeJson(connectToken)};
+  var REDIRECT_URL  = ${safeJson(redirectUrl)};
+  var IS_SANDBOX    = ${safeJson(isSandbox)};
 
   var btn      = document.getElementById('connectBtn');
   var statusEl = document.getElementById('statusEl');

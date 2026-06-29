@@ -27,7 +27,10 @@ export const config = {
     clientSecret: optionalEnv("PLUGGY_CLIENT_SECRET"),
     baseUrl: process.env.PLUGGY_BASE_URL ?? "https://api.pluggy.ai",
     // When true, the Pluggy Connect widget shows sandbox/test connectors.
-    // Disable in production by setting PLUGGY_SANDBOX=false.
-    sandbox: process.env.PLUGGY_SANDBOX !== "false",
+    // Defaults to true only in development (NODE_ENV !== "production").
+    // Must be explicitly set to PLUGGY_SANDBOX=true to enable in production.
+    sandbox:
+      process.env.PLUGGY_SANDBOX === "true" ||
+      (process.env.PLUGGY_SANDBOX === undefined && process.env.NODE_ENV !== "production"),
   },
 };
