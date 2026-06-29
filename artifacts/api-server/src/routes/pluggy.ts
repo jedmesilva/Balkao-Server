@@ -492,7 +492,9 @@ router.post("/pluggy/verify", async (req: Request, res: Response): Promise<void>
 
     const item = await getItem(itemIdStr);
 
-    if (!item.connector.isOpenFinance) {
+    // In sandbox mode the test connector (Pluggy Bank) has isOpenFinance:false.
+    // Skip this check for sandbox so development testing works end-to-end.
+    if (!item.connector.isOpenFinance && !config.pluggy.sandbox) {
       await db
         .update(identityVerificationsTable)
         .set({ status: "identity_mismatch", updatedAt: new Date() })
@@ -745,8 +747,9 @@ router.post("/pluggy/webhook", verifyPluggySignature, async (req: Request, res: 
       const item = await getItem(itemId);
 
       // Enforce Open Finance requirement — same rule as /pluggy/verify.
-      // Non-OF connectors cannot be used for identity verification even via webhook.
-      if (!item.connector.isOpenFinance) {
+      // In sandbox mode the test connector (Pluggy Bank) has isOpenFinance:false,
+      // so we skip this check in sandbox to allow end-to-end testing.
+      if (!item.connector.isOpenFinance && !config.pluggy.sandbox) {
         logger.warn(
           { itemId, connector: item.connector.name, phoneNumber: record.phoneNumber },
           "Webhook: rejecting non-Open Finance connector — marking as mismatch",
