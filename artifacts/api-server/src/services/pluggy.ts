@@ -102,6 +102,23 @@ export interface PluggyItem {
   updatedAt: string;
 }
 
+export async function listItemsByClientUserId(clientUserId: string): Promise<PluggyItem[]> {
+  const apiKey = await getPluggyApiKey();
+
+  const res = await fetch(
+    `${PLUGGY_BASE}/items?clientUserId=${encodeURIComponent(clientUserId)}`,
+    { headers: { "X-API-KEY": apiKey } },
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Pluggy GET /items?clientUserId failed (${res.status}): ${text}`);
+  }
+
+  const data = (await res.json()) as { results?: PluggyItem[]; total?: number };
+  return data.results ?? [];
+}
+
 export async function getItem(itemId: string): Promise<PluggyItem> {
   const apiKey = await getPluggyApiKey();
 
