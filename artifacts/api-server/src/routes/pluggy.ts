@@ -3,7 +3,6 @@ import { eq } from "drizzle-orm";
 import { db, identityVerificationsTable } from "@workspace/db";
 import {
   createConnectToken,
-  listItemsByClientUserId,
   getItem,
   getIdentity,
   deleteItem,
@@ -40,6 +39,8 @@ function safeJson(value: unknown): string {
 router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> => {
   const phoneNumber = req.query["phone"] as string | undefined;
   const isReturn = req.query["return"] === "1";
+  // Pluggy appends ?itemId=<uuid> to the redirectUrl after a successful connection.
+  const returnItemId = req.query["itemId"] as string | undefined;
 
   if (!phoneNumber) {
     res.status(400).send("<h2>Parâmetro 'phone' ausente.</h2>");
@@ -165,84 +166,62 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // Kick off server-side verification asynchronously — don't wait for it before
-    // responding, so the polling page is served immediately and the browser can
-    // start polling while verification runs in the background.
-    //
-    // This is the primary path: PluggyConnect's onSuccess does not reliably
-    // provide itemId, and webhook clientUserId is null in Sandbox. Instead, we
-    // query Pluggy directly for the user's items by clientUserId.
-    (async () => {
-      try {
-        const clientUserId = record.pluggyClientUserId;
-        if (!clientUserId) {
-          logger.warn({ phoneNumber }, "Return: no pluggyClientUserId on record, cannot auto-verify");
-          return;
+    // Pluggy appends ?itemId=<uuid> to the redirectUrl on successful connection.
+    // Use it to verify immediately — no webhook association needed.
+    if (returnItemId && isUuid(returnItemId)) {
+      (async () => {
+        try {
+          logger.info({ phoneNumber, itemId: returnItemId }, "Return: itemId received, starting verification");
+
+          const item = await getItem(returnItemId);
+
+          if (!item.connector.isOpenFinance) {
+            logger.warn({ phoneNumber, connector: item.connector.name }, "Return: non-Open Finance connector");
+            await db
+              .update(identityVerificationsTable)
+              .set({ status: "identity_mismatch", updatedAt: new Date() })
+              .where(eq(identityVerificationsTable.phoneNumber, phoneNumber));
+            return;
+          }
+
+          if (item.executionStatus !== "SUCCESS") {
+            logger.info({ phoneNumber, executionStatus: item.executionStatus }, "Return: item not yet SUCCESS — webhook will follow up");
+            // Save itemId so webhook can match later when item finishes
+            if (!record.pluggyItemId) {
+              await db
+                .update(identityVerificationsTable)
+                .set({ pluggyItemId: returnItemId, updatedAt: new Date() })
+                .where(eq(identityVerificationsTable.phoneNumber, phoneNumber));
+            }
+            return;
+          }
+
+          const identity = await getIdentity(returnItemId);
+          const now = new Date();
+
+          if (documentsMatch(record.declaredDocument, identity.document)) {
+            await db
+              .update(identityVerificationsTable)
+              .set({ status: "identity_verified", pluggyItemId: returnItemId, verifiedAt: now, lastBankReauthAt: now, updatedAt: now })
+              .where(eq(identityVerificationsTable.phoneNumber, phoneNumber));
+            logger.info({ phoneNumber, itemId: returnItemId }, "Return: identity verified ✅");
+          } else {
+            await db
+              .update(identityVerificationsTable)
+              .set({ status: "identity_mismatch", pluggyItemId: returnItemId, updatedAt: now })
+              .where(eq(identityVerificationsTable.phoneNumber, phoneNumber));
+            logger.warn(
+              { phoneNumber, declared: record.declaredDocument, fromBank: identity.document },
+              "Return: identity mismatch ❌",
+            );
+          }
+        } catch (err) {
+          logger.error({ err, phoneNumber, itemId: returnItemId }, "Return: verification failed — webhook will handle it");
         }
-
-        // Find the most recent item for this user that succeeded
-        const items = await listItemsByClientUserId(clientUserId);
-        logger.info({ phoneNumber, count: items.length }, "Return: found Pluggy items for user");
-
-        const successItem = items
-          .filter((it) => it.executionStatus === "SUCCESS" || it.status === "UPDATED")
-          .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
-
-        if (!successItem) {
-          logger.info({ phoneNumber }, "Return: no successful item yet — webhook will handle when ready");
-          return;
-        }
-
-        if (!successItem.connector.isOpenFinance) {
-          logger.warn(
-            { phoneNumber, connector: successItem.connector.name },
-            "Return: non-Open Finance connector — marking mismatch",
-          );
-          await db
-            .update(identityVerificationsTable)
-            .set({ status: "identity_mismatch", updatedAt: new Date() })
-            .where(eq(identityVerificationsTable.phoneNumber, phoneNumber));
-          return;
-        }
-
-        // Save the itemId so future webhook events can match by it
-        if (!record.pluggyItemId && isUuid(successItem.id)) {
-          await db
-            .update(identityVerificationsTable)
-            .set({ pluggyItemId: successItem.id, updatedAt: new Date() })
-            .where(eq(identityVerificationsTable.phoneNumber, phoneNumber));
-          logger.info({ phoneNumber, itemId: successItem.id }, "Return: saved pluggyItemId");
-        }
-
-        const identity = await getIdentity(successItem.id);
-        const now = new Date();
-
-        if (documentsMatch(record.declaredDocument, identity.document)) {
-          await db
-            .update(identityVerificationsTable)
-            .set({
-              status: "identity_verified",
-              pluggyItemId: successItem.id,
-              verifiedAt: now,
-              lastBankReauthAt: now,
-              updatedAt: now,
-            })
-            .where(eq(identityVerificationsTable.phoneNumber, phoneNumber));
-          logger.info({ phoneNumber, itemId: successItem.id }, "Return: identity verified ✅");
-        } else {
-          await db
-            .update(identityVerificationsTable)
-            .set({ status: "identity_mismatch", updatedAt: now })
-            .where(eq(identityVerificationsTable.phoneNumber, phoneNumber));
-          logger.warn(
-            { phoneNumber, declared: record.declaredDocument, fromBank: identity.document },
-            "Return: identity mismatch ❌",
-          );
-        }
-      } catch (err) {
-        logger.error({ err, phoneNumber }, "Return: auto-verify failed — webhook will handle it");
-      }
-    })();
+      })();
+    } else {
+      logger.info({ phoneNumber }, "Return: no itemId in query — waiting for webhook");
+    }
 
     const apiBase = `${baseUrl}/api`;
     res.send(`<!DOCTYPE html>
