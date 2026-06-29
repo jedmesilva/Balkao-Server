@@ -313,8 +313,8 @@ router.get("/pluggy/widget", async (req: Request, res: Response): Promise<void> 
   const sandboxTestData = isSandbox ? `
   <div class="testdata">
     <strong>Dados de teste (Sandbox)</strong><br/>
-    CPF: <code>761.092.776-73</code> (fluxo de sucesso)<br/>
-    Senha: <code>P@ssword01</code>
+    Declare este CPF no WhatsApp: <code>076.630.975-48</code><br/>
+    Login no banco: <code>761.092.776-73</code> / <code>P@ssword01</code>
   </div>` : '';
 
   res.send(`<!DOCTYPE html>
